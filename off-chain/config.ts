@@ -28,8 +28,7 @@ const buildBearSandbox = defineChain({
   },
   contracts: {
     myContract: {
-      address:
-        "0x4216d492b38c68b6c5f856b1f46de804dcc7c833856848207bce2383796c325d",
+      address: "0x5De0B97C21d65a9fd4a1512C3a191585e64a7868",
       blockCreated: 9945712,
     },
   },

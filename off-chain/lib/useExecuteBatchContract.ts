@@ -1,3 +1,4 @@
+"use client";
 import { useMemo, useState } from "react";
 import {
   useAccount,
@@ -10,11 +11,20 @@ import { config } from "@/config";
 import { CONTRACT_ABI } from "./batchContractABI";
 
 export default function useExecuteBatchContract() {
-  const recipients = {
-    batchAccount1: "0x6A88821ad52A2f5A54581A941cB38f39aaFb4aF4",
-    batchAccount2: "0x9907bf95ea352e3ad20e656d056ef8011D1272F7",
-    batchAccount3: "0xC3976D61f38164d86fCA69884C37977f788E7991",
-  };
+  const recipients = [
+    {
+      name: "Batch Account 1",
+      address: "0x6A88821ad52A2f5A54581A941cB38f39aaFb4aF4",
+    },
+    {
+      name: "Batch Account 2",
+      address: "0x9907bf95ea352e3ad20e656d056ef8011D1272F7",
+    },
+    {
+      name: "Batch Account 3",
+      address: "0xC3976D61f38164d86fCA69884C37977f788E7991",
+    },
+  ];
 
   const chainId = useChainId();
   const chain = config.chains.find((c) => c.id === chainId);
@@ -68,7 +78,9 @@ export default function useExecuteBatchContract() {
       }
 
       // Prepare recipients and amounts arrays
-      const recipientAddresses = Object.values(recipients) as `0x${string}`[];
+      const recipientAddresses = recipients.map(
+        (r) => r.address
+      ) as `0x${string}`[];
       const amounts = recipientAddresses.map(() => parseEther("10")); // 10 ETH for each
       const totalAmount = parseEther("30"); // 10 ETH × 3 recipients
 
