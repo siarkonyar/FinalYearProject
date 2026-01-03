@@ -5,7 +5,7 @@ import "@nomicfoundation/hardhat-ethers";
 import "@vechain/sdk-hardhat-plugin";
 import * as dotenv from "dotenv";
 
-dotenv.config();  // Add this line
+dotenv.config(); // Add this line
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -29,13 +29,11 @@ const config: HardhatUserConfig = {
       gas: "auto",
       gasPrice: "auto",
     },
-
-    sepolia: {
-      url: process.env.BUILDBEAR_RPC,
-      chainId: 31337,
-      accounts: process.env.ACCOUNT_PRIVATE_KEY
-        ? [process.env.ACCOUNT_PRIVATE_KEY]
-        : [],
+    //hardhat node simulation
+    hardhat: {
+      forking: {
+        url: process.env.ALCHEMY_MAINNET_URL ?? "",
+      },
     },
   },
 };

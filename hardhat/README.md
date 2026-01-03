@@ -1,13 +1,38 @@
-# Sample Hardhat Project
+# Batcher Smart Contract
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+Batch ETH transfer contract using Hardhat with Ethereum mainnet forking.
 
-Try running some of the following tasks:
+## Dependencies
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
+| Package | Purpose |
+|---------|---------|
+| `hardhat` | Development environment |
+| `@nomicfoundation/hardhat-toolbox` | Plugin bundle |
+| `@vechain/sdk-hardhat-plugin` | VeChain support |
+| `dotenv` | Environment variables |
+
+## Forking
+
+Uses Alchemy to fork Ethereum mainnet locally for testing against real mainnet state without spending real ETH. Configured in `hardhat.config.ts` via `ALCHEMY_MAINNET_URL`.
+
+## Deployment
+
+**Terminal 1:** Start local forked node
+```bash
 npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.ts
+```
+
+**Terminal 2:** Deploy contract
+```bash
+npx hardhat ignition deploy ignition/modules/Batcher.ts --network localhost
+```
+
+Deployment address saved to `ignition/deployments/chain-31337/deployed_addresses.json`.
+
+## Commands
+
+```bash
+npx hardhat compile              # Compile contracts
+npx hardhat test                 # Run tests
+npx hardhat clean                # Clean artifacts
 ```

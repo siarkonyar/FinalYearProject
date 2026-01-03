@@ -1,6 +1,6 @@
 pragma solidity ^0.8.28;
 
-contract MyContract {
+contract Batcher {
     event BatchExecuted(
         uint256 batchSize,
         uint256 totalAmount,
@@ -13,7 +13,7 @@ contract MyContract {
     );
 
     //TODO: add only backend can call this contract things
-    address private immutable backend;
+    /* address private immutable backend;
     constructor() {
         backend = msg.sender;
     }
@@ -21,12 +21,12 @@ contract MyContract {
     modifier onlyBackend() {
         require(msg.sender == backend, "Not authorized");
         _;
-    }
+    } */
 
     function executeBatch(
         address[] calldata recipients,
         uint256[] calldata amounts
-    ) external payable onlyBackend {
+    ) external payable {
         uint256 batchGasStart = gasleft(); // it's accurate enough for monitoring/analytics and uses gas itself,
         // Check transaction receipt after execution (free, but only total gas):
         /*

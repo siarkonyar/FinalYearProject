@@ -3,27 +3,18 @@ import { mainnet, sepolia } from "wagmi/chains";
 import { defineChain } from "viem";
 import { metaMask } from "wagmi/connectors";
 
-const buildBearSandbox = defineChain({
-  id: 31337, // REPLACE with your actual BuildBear Chain ID
-  name: "BuildBear Sandbox",
-  network: "buildbear",
+// Define Hardhat local network with mainnet fork
+const hardhatLocal = defineChain({
+  id: 31337, // Hardhat's default chain ID
+  name: "Hardhat Local (Mainnet Fork)",
   nativeCurrency: {
     decimals: 18,
-    name: "BuildBear Ether",
+    name: "Ether",
     symbol: "ETH",
   },
   rpcUrls: {
     default: {
-      http: [process.env.NEXT_PUBLIC_RPC_URL ?? ""], // REPLACE with your RPC URL
-    },
-    public: {
-      http: [process.env.NEXT_PUBLIC_RPC_URL ?? ""],
-    },
-  },
-  blockExplorers: {
-    default: {
-      name: "BuildBear Explorer",
-      url: process.env.NEXT_PUBLIC_BUILDBEAR_BLOCK_EXPLORER_URL ?? "",
+      http: ["http://127.0.0.1:8545"],
     },
   },
   contracts: {
@@ -36,9 +27,9 @@ const buildBearSandbox = defineChain({
 
 export const config = createConfig({
   chains: [
+    hardhatLocal,
     /* mainnet,
     sepolia, */
-    buildBearSandbox,
   ],
   //NOTE - this batch setting is comming from view
   batch: {
@@ -53,7 +44,7 @@ export const config = createConfig({
     }),
   ],
   transports: {
-    [buildBearSandbox.id]: http(),
+    [hardhatLocal.id]: http(),
     /* [mainnet.id]: http(),
     [sepolia.id]: http(), */
   },
