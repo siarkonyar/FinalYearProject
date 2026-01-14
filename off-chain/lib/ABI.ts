@@ -1,4 +1,4 @@
-export const CONTRACT_ABI = [
+export const BATCH_CONTRACT_ABI = [
   {
     inputs: [],
     stateMutability: "nonpayable",
@@ -70,6 +70,45 @@ export const CONTRACT_ABI = [
     name: "executeBatch",
     outputs: [],
     stateMutability: "payable",
+    type: "function",
+  },
+];
+
+export const MULTI_BATCH_CONTRACT_ABI = [
+  {
+    inputs: [
+      {
+        internalType: "address[]",
+        name: "senders",
+        type: "address[]",
+      },
+      {
+        internalType: "address[]",
+        name: "recipients",
+        type: "address[]",
+      },
+      {
+        internalType: "uint256[]",
+        name: "amounts",
+        type: "uint256[]",
+      },
+    ],
+    name: "executeBatch",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "targetToken",
+    outputs: [
+      {
+        internalType: "contract IERC20",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
     type: "function",
   },
 ];

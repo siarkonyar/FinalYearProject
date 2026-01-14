@@ -38,6 +38,9 @@ export const tenderly = defineChain({
     batcher: {
       address: "0x020eca6d44dc38b25c5ecd07d4fd15754cb5ab4d",
     },
+    multiBatch: {
+      address: "0xc08f7ef9235760a86ad18c4beef7ff3b91512b97",
+    },
   },
 });
 

@@ -1,4 +1,5 @@
 "use client";
+
 import { useMemo, useState } from "react";
 import {
   useAccount,
@@ -7,29 +8,25 @@ import {
   useChainId,
   useBalance,
 } from "wagmi";
-import { formatEther, parseEther } from "viem";
+import { formatEther, parseEther, parseUnits } from "viem";
 import { config, tenderly } from "@/config";
-import { BATCH_CONTRACT_ABI } from "./ABI";
-import { recipients } from "./keys";
+import { recipients, sendersPrivateKeys } from "./keys";
+import { MULTI_BATCH_CONTRACT_ABI } from "./ABI";
 
-export default function useExecuteBatchContract() {
+export default function useExecuteMultiBatchContract() {
   const chainId = useChainId();
   const chain = config.chains.find((c) => c.id === chainId);
+
+  const [manualStatus, setManualStatus] = useState<string>("");
+
   const contractAddress =
     chain?.id === tenderly.id
       ? (tenderly.contracts.batcher.address as `0x${string}`)
       : undefined;
 
-  const { address, isConnected } = useAccount();
-  const { data: balance } = useBalance({
-    address: address,
-  });
-  const balanceInEther = balance?.value ? formatEther(balance.value) : "0";
-  const [manualStatus, setManualStatus] = useState<string>("");
-
   const {
     data: hash,
-    writeContract,
+    writeContractAsync,
     error: writeError,
     isPending,
   } = useWriteContract();
@@ -53,15 +50,9 @@ export default function useExecuteBatchContract() {
     return manualStatus;
   }, [isConfirming, isConfirmed, hash, writeError, manualStatus]);
 
-  const executeBatch = async () => {
+  const executeMultiBatch = async () => {
     try {
-      setManualStatus("Preparing Batch Transfer...");
-
-      // Check if wallet is connected
-      if (!isConnected || !address) {
-        setManualStatus("Please connect your wallet first!");
-        return;
-      }
+      setManualStatus("Preparing Multi Batch Transfer...");
 
       // Check if contract address is available
       if (!contractAddress) {
@@ -73,18 +64,23 @@ export default function useExecuteBatchContract() {
       const recipientAddresses = recipients.map(
         (r) => r.address
       ) as `0x${string}`[];
-      const amounts = recipientAddresses.map(() => parseEther("10")); // 10 ETH for each
-      const totalAmount = parseEther("30"); // 10 ETH × 3 recipients
+
+      const senderAddresses = sendersPrivateKeys.map(
+        (r) => r.address
+      ) as `0x${string}`[];
+
+      const amounts = senderAddresses.map(() => parseUnits("10", 6)); // 10 USDC for each
+
+
 
       setManualStatus("Waiting for transaction approval...");
 
       // Call the smart contract
-      writeContract({
+      writeContractAsync({
         address: contractAddress,
-        abi: BATCH_CONTRACT_ABI,
+        abi: MULTI_BATCH_CONTRACT_ABI,
         functionName: "executeBatch",
-        args: [recipientAddresses, amounts],
-        value: totalAmount,
+        args: [senderAddresses, recipientAddresses, amounts],
       });
     } catch (error) {
       console.error("Error:", error);
@@ -92,15 +88,5 @@ export default function useExecuteBatchContract() {
         `Error: ${error instanceof Error ? error.message : "Unknown error"}`
       );
     }
-  };
-
-  return {
-    executeBatch,
-    status,
-    balanceInEther,
-    loading: isPending || isConfirming,
-    isConfirmed,
-    txHash: hash,
-    recipients,
   };
 }
