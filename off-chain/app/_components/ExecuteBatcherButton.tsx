@@ -1,6 +1,6 @@
 "use client";
 
-import useExecuteBatchContract from "@/lib/useExecuteBatchContract";
+import useExecuteBatchContract from "@/hooks/useExecuteBatchContract";
 import React from "react";
 import { formatEther } from "viem";
 

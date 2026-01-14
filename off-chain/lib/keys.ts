@@ -15,9 +15,9 @@ export const recipients = [
 
 export const sendersPrivateKeys = [
   {
-    name: "Batch Account 3",
+    name: "Batch Account 1",
     address:
-      "0x1f01357cd2f21a3c2ab84415d97574329242a4b1d5ae83a49ec3b969605ea49a",
+      "0x6e5175f79053190cea3795495a7b7d3b35bfda832d92a7ac2b4e854287e0c9db",
   },
   {
     name: "Batch Account 2",
@@ -25,8 +25,8 @@ export const sendersPrivateKeys = [
       "0xdd7d34b1135d7cbd2cffdbb7c60f2d338e9821e95284e9bcca645b580402906f",
   },
   {
-    name: "Batch Account 1",
+    name: "Batch Account 3",
     address:
-      "0x6e5175f79053190cea3795495a7b7d3b35bfda832d92a7ac2b4e854287e0c9db",
+      "0x1f01357cd2f21a3c2ab84415d97574329242a4b1d5ae83a49ec3b969605ea49a",
   },
 ];

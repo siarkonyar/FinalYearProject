@@ -1,6 +1,6 @@
 "use client";
 
-import useExecuteMultiBatchContract from "@/lib/useExecuteMultiBatchContract";
+import useExecuteMultiBatchContract from "@/hooks/useExecuteMultiBatchContract";
 import { recipients, sendersPrivateKeys } from "@/lib/keys";
 import React from "react";
 

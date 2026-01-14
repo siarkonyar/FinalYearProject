@@ -9,8 +9,8 @@ import {
 } from "wagmi";
 import { formatEther, parseEther } from "viem";
 import { config, tenderly } from "@/config";
-import { BATCH_CONTRACT_ABI } from "./ABI";
-import { recipients } from "./keys";
+import { BATCH_CONTRACT_ABI } from "../lib/ABI";
+import { recipients } from "../lib/keys";
 
 export default function useExecuteBatchContract() {
   const chainId = useChainId();

@@ -1,7 +1,7 @@
 "use client";
 
 import { ethers } from "ethers";
-import { sendersPrivateKeys } from "./keys";
+import { sendersPrivateKeys } from "../lib/keys";
 import { config, tenderly } from "@/config";
 import { useChainId } from "wagmi";
 import { useState } from "react";
@@ -56,7 +56,7 @@ export function useApproveSmartContract() {
           }`;
           console.error(errorMsg);
           setApprovalError(errorMsg);
-          return false
+          return false;
         }
       }
 
