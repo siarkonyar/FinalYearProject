@@ -2,7 +2,6 @@
 
 import useExecuteMultiBatchContract from "@/hooks/useExecuteMultiBatchContract";
 import { generateRandomBatch } from "@/lib/generateRandomTransaction";
-import { recipients, sendersPrivateKeys } from "@/lib/keys";
 import React from "react";
 
 export default function ExecuteMultiBatcherButton() {
@@ -14,49 +13,18 @@ export default function ExecuteMultiBatcherButton() {
     isConfirming,
     isConfirmed,
     hash,
+    receipt,
   } = useExecuteMultiBatchContract();
 
   const isLoading = isApproving || isPending || isConfirming;
 
-  const batch = generateRandomBatch(5);
+  const batch = generateRandomBatch(20);
 
   return (
     <div className="flex flex-col items-center gap-4 p-6 bg-white rounded-lg shadow-lg">
       <h2 className="text-2xl font-bold text-gray-800">
-        Multi Batch USDC Transfer
+        Execute Multi-Batch Transfer
       </h2>
-
-      <div className="w-full grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <h3 className="font-semibold text-gray-700">Senders:</h3>
-          {sendersPrivateKeys.map((sender, index) => (
-            <div
-              key={index}
-              className="text-sm font-mono text-gray-600 bg-gray-50 p-2 rounded"
-            >
-              {sender.name}
-            </div>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          <h3 className="font-semibold text-gray-700">
-            Recipients (10 USDC each):
-          </h3>
-          {recipients.map((recipient, index) => (
-            <div
-              key={index}
-              className="text-sm font-mono text-gray-600 bg-gray-50 p-2 rounded"
-            >
-              {recipient.name}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="text-lg font-semibold text-gray-700">
-        Total: <span className="text-blue-600">30 USDC</span>
-      </div>
 
       <button
         onClick={() => executeMultiBatch(batch)}
@@ -67,7 +35,7 @@ export default function ExecuteMultiBatcherButton() {
             : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl"
         }`}
       >
-        {isLoading ? "Processing..." : "Send 30 USDC via MultiBatch"}
+        {isLoading ? "Processing..." : "Execute Batch"}
       </button>
 
       {status && (
@@ -96,6 +64,51 @@ export default function ExecuteMultiBatcherButton() {
               TX: {hash}
             </p>
           )}
+        </div>
+      )}
+
+      {receipt && (
+        <div className="mt-6 w-full rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50 shadow-md">
+          <div className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-bold">
+                ✓
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-indigo-500 font-semibold">
+                  Transaction Receipt
+                </p>
+                <p className="text-sm font-semibold text-gray-900">
+                  Batch execution confirmed on-chain
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 text-xs">
+              <div className="rounded-lg bg-white/70 border border-indigo-100 px-3 py-3 flex flex-col items-start">
+                <span className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold">
+                  Gas Used
+                </span>
+                <span className="mt-1 text-2xl font-extrabold text-indigo-700 tracking-tight">
+                  {receipt.gasUsed?.toString()}
+                </span>
+                <span className="mt-1 text-[11px] text-gray-500">
+                  Total gas consumed by this batch transaction
+                </span>
+              </div>
+            </div>
+
+            {hash && (
+              <div className="mt-3 pt-3 border-t border-indigo-100">
+                <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
+                  Transaction Hash
+                </p>
+                <p className="text-[11px] font-mono break-all text-gray-700">
+                  {hash}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
