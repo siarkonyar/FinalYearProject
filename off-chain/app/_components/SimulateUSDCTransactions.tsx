@@ -15,7 +15,7 @@ export default function SimulateUSDCTransactions() {
 
   const { sendUsdc } = useUSDC();
 
-  const { approveForAll, isApproving, approvalError } =
+  const { approveForAll, isApproving } =
     useApproveSmartContract();
 
   const [isRunning, setIsRunning] = useState(false);
