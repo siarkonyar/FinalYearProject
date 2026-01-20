@@ -8,15 +8,13 @@ export default function ExecuteMultiBatcherButton() {
   const {
     executeMultiBatch,
     status,
-    isApproving,
     isPending,
     isConfirming,
-    isConfirmed,
     hash,
     receipt,
   } = useExecuteMultiBatchContract();
 
-  const isLoading = isApproving || isPending || isConfirming;
+  const isLoading = isPending || isConfirming;
 
   const batch = generateRandomBatch(20);
 

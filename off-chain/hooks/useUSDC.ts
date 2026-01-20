@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useChainId } from "wagmi";
-import { parseUnits } from "viem";
 import { ethers } from "ethers";
 import { config } from "@/config";
 import { Transaction } from "@/types/types";

@@ -1,63 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  useAccount,
-  useWriteContract,
-  useWaitForTransactionReceipt,
-  useChainId,
-  useBalance,
-} from "wagmi";
-import { formatEther, parseEther, parseUnits } from "viem";
+import { useState } from "react";
+import { useChainId } from "wagmi";
 import { config } from "@/config";
-import { recipients, senders } from "../lib/keys";
 import { MULTI_BATCH_CONTRACT_ABI } from "../lib/ABI";
-import { useApproveSmartContract } from "./useApproveSmartContract";
-import { ethers } from "ethers";
-import { getRandomAmount } from "@/lib/randomAmounts";
 import { Transaction } from "@/types/types";
+import { ethers } from "ethers";
+import { adminWallet } from "@/lib/keys";
 
 export default function useExecuteMultiBatchContract() {
   const chainId = useChainId();
   const chain = config.chains.find((c) => c.id === chainId);
 
+  if (!chain) {
+    throw new Error("unsupported chain");
+  }
+
   const [manualStatus, setManualStatus] = useState<string>("");
+  const [receipt, setReceipt] = useState<ethers.TransactionReceipt | null>(
+    null,
+  );
 
   const contractAddress = chain?.contracts?.multiBatch?.address
     ? (chain.contracts.multiBatch.address as `0x${string}`)
     : undefined;
-
-  const {
-    data: hash,
-    writeContractAsync,
-    error: writeError,
-    isPending,
-  } = useWriteContract();
-
-  const { approveForAll, isApproving, approvalStatus, approvalError } =
-    useApproveSmartContract();
-
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isConfirmed,
-  } = useWaitForTransactionReceipt({
-    hash,
-  });
-
-  const status = useMemo(() => {
-    if (writeError) {
-      return `Error: ${writeError.message}`;
-    }
-    if (isConfirming) {
-      return "Transaction pending... waiting for confirmation";
-    }
-    if (isConfirmed && hash) {
-      return `Transaction confirmed! Hash: ${hash}`;
-    }
-    // Fall back to manual status for pre-transaction messages
-    return manualStatus;
-  }, [isConfirming, isConfirmed, hash, writeError, manualStatus]);
 
   /* // Prepare recipients and amounts arrays
   const recipientAddresses = recipients.map(
@@ -75,14 +41,6 @@ export default function useExecuteMultiBatchContract() {
     try {
       setManualStatus("Preparing Multi Batch Transfer...");
 
-      //approve multi batch smart contract for all acount for the smart contract to withdraw usdc from wallets
-      const approved = await approveForAll();
-
-      if (!approved || approvalError) {
-        setManualStatus(`Approval failed: ${approvalError}`);
-        return;
-      }
-
       // Check if contract address is available
       if (!contractAddress) {
         setManualStatus("Contract address not found for this chain!");
@@ -94,32 +52,45 @@ export default function useExecuteMultiBatchContract() {
       const recipientsArr = batch.map((tx) => tx.recipient) as `0x${string}`[];
       const amounts = batch.map((tx) => tx.amount);
 
-      setManualStatus("Waiting for transaction approval...");
+      setManualStatus("Connecting admin wallet...");
 
-      // Call the smart contract
-      writeContractAsync({
-        address: contractAddress,
-        abi: MULTI_BATCH_CONTRACT_ABI,
-        functionName: "executeBatch",
-        args: [senders, recipientsArr, amounts],
-      });
+      // Connect to the chain using admin wallet's private key
+      const RPC_URL = chain.rpcUrls.default.http[0];
+      const provider = new ethers.JsonRpcProvider(RPC_URL);
+      const wallet = new ethers.Wallet(adminWallet.privateKey, provider);
+      // Create contract instance
+      const contract = new ethers.Contract(
+        contractAddress,
+        MULTI_BATCH_CONTRACT_ABI,
+        wallet,
+      );
+
+      setManualStatus("Sending batch transaction...");
+
+      // Call the smart contract with admin wallet
+      const tx = await contract.executeBatch(senders, recipientsArr, amounts);
+
+      setManualStatus("Waiting for confirmation...");
+
+      // Wait for the transaction to be mined
+      const txReceipt = await tx.wait();
+
+      setManualStatus(`Transaction confirmed! Hash: ${tx.hash}`);
+      setReceipt(txReceipt);
+
+      return txReceipt;
     } catch (error) {
       console.error("Error:", error);
       setManualStatus(
         `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
+      throw error;
     }
   };
 
   return {
     executeMultiBatch,
     status,
-    isApproving,
-    isPending,
-    isConfirming,
-    isConfirmed,
-    hash,
     receipt,
-    writeError,
   };
 }

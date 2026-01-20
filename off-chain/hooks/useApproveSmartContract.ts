@@ -1,7 +1,7 @@
 "use client";
 
 import { ethers } from "ethers";
-import { senders } from "../lib/keys";
+import { adminWallet, senders } from "../lib/keys";
 import { config } from "@/config";
 import { useChainId } from "wagmi";
 import { useState } from "react";
@@ -44,7 +44,9 @@ export function useApproveSmartContract() {
         "function approve(address spender, uint256 amount) public returns (bool)",
       ];
 
-      for (const sender of senders) {
+      const approveList = [adminWallet, ...senders]
+
+      for (const sender of approveList) {
         try {
           //connect to wallet
           const wallet = new ethers.Wallet(sender.privateKey, provider);
