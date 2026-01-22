@@ -11,7 +11,7 @@ const HARDHAT_RPC_URL = "http://127.0.0.1:8545";
 const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const MULTI_BATCH_ADDRESS = process.env
   .NEXT_PUBLIC_BATCHER_ADDRESS as `0x${string}`;
-const SIMULATION_DURATION = 5 * 60 * 1000; // 12 seconds
+const SIMULATION_DURATION = 5 * 60 * 1000;
 const USDC_ABI = [
   {
     name: "transfer",
@@ -40,6 +40,12 @@ async function executeBatch(
       `\n⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
     );
     return;
+  }
+
+  if (batch.length >= BATCH_SIZE) {
+    console.log(
+      `Batch size is reached.`
+    )
   }
 
   console.log(
@@ -116,7 +122,7 @@ async function USDCSimulation() {
   try {
     while (Date.now() < endTime) {
       // Check if it's time to execute a batch
-      if (Date.now() >= nextBatchTime) {
+      if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
         await executeBatch(batch, batcherWallet, batchNumber);
         batch = []; // Clear the batch
         batchNumber++;

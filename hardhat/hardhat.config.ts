@@ -51,6 +51,7 @@ const config: HardhatUserConfig = {
         count: 150, //creates [index] number of wallets
       },
       forking: {
+        //NOTE: put latest block number for caching, prevents eny error before presentation
         url: process.env.ALCHEMY_MAINNET_URL ?? "",
       },
     },

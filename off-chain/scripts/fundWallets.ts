@@ -1,6 +1,5 @@
 import { adminWallet, senders } from "@/lib/keys";
 import { ethers } from "ethers";
-import fs from "fs";
 
 const TENDERLY_RPC =
   "https://virtual.mainnet.eu.rpc.tenderly.co/068e308a-de93-4d7b-8e24-47fe5f7dbeec";

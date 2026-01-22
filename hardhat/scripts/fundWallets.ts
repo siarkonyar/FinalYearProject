@@ -10,14 +10,10 @@ const ERC20_ABI = [
   "function transfer(address to, uint256 amount) returns (bool)",
 ];
 
-// MY MetaMask wallet address on the localhost network
-const MY_WALLET = "0xE9f4e4826a71d4327D8621C16daF33371705c845";
-
 async function main() {
   // Get the default Hardhat accounts
   const signers = await ethers.getSigners();
   const recipients = signers.map((s) => s.address);
-  recipients.push(MY_WALLET);
 
   // Impersonate the USDC whale
   await network.provider.request({
@@ -32,21 +28,18 @@ async function main() {
 
   console.log(`Funding ${recipients.length} accounts with 1000 USDC each...`);
 
+  /* //Define gas overrides (force a high fee cap to ensure it passes)
+  const overrides = {
+    maxFeePerGas: ethers.parseUnits("150", "gwei"),
+    maxPriorityFeePerGas: ethers.parseUnits("5", "gwei"),
+  }; */
+
   for (const addr of recipients) {
     const tx = await usdc.transfer(addr, amountPerWallet);
+    //const tx = await usdc.transfer(addr, amountPerWallet, overrides);
     await tx.wait();
     console.log(`Sent 1000 USDC to ${addr} (tx: ${tx.hash})`);
   }
-
-  // Also fund my MetaMask wallet with 1000 ETH to pay gas cost
-  const fundingSigner = signers[0];
-  const ethAmount = ethers.parseEther("1000");
-  const ethTx = await fundingSigner.sendTransaction({
-    to: MY_WALLET,
-    value: ethAmount,
-  });
-  await ethTx.wait();
-  console.log(`Sent 1000 ETH to ${MY_WALLET} (tx: ${ethTx.hash})`);
 
   console.log("Done.");
 }
