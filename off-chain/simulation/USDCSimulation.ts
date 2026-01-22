@@ -1,9 +1,11 @@
 import { generateRandomTransaction } from "../lib/generateRandomTransaction";
 import { adminWallet } from "../lib/keys";
 import { ethers } from "ethers";
-import type { Transaction } from "../types/types";
+import type { SimulationLog, Transaction } from "../types/types";
 import { MULTI_BATCH_CONTRACT_ABI } from "../lib/ABI";
 import * as dotenv from "dotenv";
+import * as fs from "fs";
+import * as path from "path";
 
 dotenv.config();
 
@@ -29,6 +31,48 @@ const USDC_ABI = [
 const BATCH_SIZE = 5;
 const BATCH_INTERVAL_MIN = 1;
 const BATCH_INTERVAL_MS = BATCH_INTERVAL_MIN * 60 * 1000;
+
+const simulationLog: SimulationLog = {
+  simulationStartTime: Date.now(),
+  simulationEndTime: 0,
+  simulationDuration: SIMULATION_DURATION,
+  batchSize: BATCH_SIZE,
+  batchIntervalMinutes: BATCH_INTERVAL_MIN,
+  individualTransactions: [],
+  batches: [],
+  summary: {
+    totalIndividualTransactions: 0,
+    totalBatches: 0,
+    totalIndividualGasUsed: "0",
+    totalBatchGasUsed: "0",
+  },
+};
+
+function saveLog() {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const logFileName = `simulation-log-${timestamp}.json`;
+  const logPath = path.join(process.cwd(), "simulation/logs", logFileName);
+
+  // Calculate total gas for individual and batched transactions
+  const totalIndividualGas = simulationLog.individualTransactions.reduce(
+    (sum, tx) => sum + BigInt(tx.gasUsed),
+    BigInt(0),
+  );
+  const totalBatchGas = simulationLog.batches.reduce(
+    (sum, batch) => sum + BigInt(batch.gasUsed),
+    BigInt(0),
+  );
+
+  simulationLog.summary = {
+    totalIndividualTransactions: simulationLog.individualTransactions.length,
+    totalBatches: simulationLog.batches.length,
+    totalIndividualGasUsed: totalIndividualGas.toString(),
+    totalBatchGasUsed: totalBatchGas.toString(),
+  };
+
+  fs.writeFileSync(logPath, JSON.stringify(simulationLog, null, 2));
+  console.log(`\n📝 Log saved to: ${logFileName}`);
+}
 
 async function executeBatch(
   batch: Transaction[],
@@ -80,6 +124,22 @@ async function executeBatch(
     console.log(
       `🎉 Batch #${batchNumber} Confirmed! Total Gas: ${batchGasUsed}`,
     );
+
+    //add batch to the log
+
+    simulationLog.batches.push({
+      batchNumber,
+      txHash: batchedTx.hash,
+      gasUsed: batchGasUsed || "0",
+      blockNumber: batchedTxReceipt?.blockNumber || null,
+      timestamp: Date.now(),
+      transactionCount: batch.length,
+      transactions: batch.map((tx) => ({
+        sender: tx.sender,
+        recipient: tx.recipient,
+        amount: tx.amount.toString(),
+      })),
+    });
   } catch (error) {
     console.error(`\n❌ Batch #${batchNumber} execution failed:`, error);
   }
@@ -159,6 +219,17 @@ async function USDCSimulation() {
 
         console.log("------------------------------------------------");
 
+        //add the transaction to the log, if it fails it wont be added
+        simulationLog.individualTransactions.push({
+          txHash: tx.hash,
+          sender: transaction.sender,
+          recipient: transaction.recipient,
+          amount: transaction.amount.toString(),
+          gasUsed: gasUsed || "0",
+          blockNumber: txReceipt?.blockNumber || null,
+          timestamp: Date.now(),
+        });
+
         batch.push(transaction);
       } catch (txError) {
         console.error("Transaction failed:", txError);
@@ -175,8 +246,13 @@ async function USDCSimulation() {
     }
 
     console.log(`\n--- Simulation Complete ---`);
+
+    simulationLog.simulationEndTime = Date.now();
+    saveLog();
   } catch (error) {
     console.error("\n❌ FATAL ERROR:", error);
+    simulationLog.simulationEndTime = Date.now();
+    saveLog();
   } finally {
     clearInterval(countdownInterval);
   }
