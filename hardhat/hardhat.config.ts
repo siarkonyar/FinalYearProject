@@ -53,6 +53,8 @@ const config: HardhatUserConfig = {
       forking: {
         //NOTE: put latest block number for caching, prevents eny error before presentation
         url: process.env.ALCHEMY_MAINNET_URL ?? "",
+        blockNumber: 24293375,
+        enabled: true,
       },
     },
 
