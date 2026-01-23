@@ -6,7 +6,7 @@ import { config } from "@/config";
 import { MULTI_BATCH_CONTRACT_ABI } from "../lib/ABI";
 import { Transaction } from "@/types/types";
 import { ethers } from "ethers";
-import { adminWallet } from "@/lib/keys";
+import { adminWallet } from "@/lib/USDCWallets";
 
 export default function useExecuteMultiBatchContract() {
   const chainId = useChainId();

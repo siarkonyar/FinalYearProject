@@ -1,7 +1,7 @@
 "use client";
 
 import { ethers } from "ethers";
-import { adminWallet, senders } from "../lib/keys";
+import { adminWallet, senders } from "../lib/USDCWallets";
 import { config } from "@/config";
 import { useChainId } from "wagmi";
 import { useState } from "react";
@@ -21,7 +21,7 @@ export function useApproveSmartContract() {
     try {
       if (!chain) {
         throw new Error(
-          "Unsupported chain. Please connect to a supported network."
+          "Unsupported chain. Please connect to a supported network.",
         );
       }
 
@@ -31,7 +31,7 @@ export function useApproveSmartContract() {
 
       if (!MULTI_BATCH_CONTRACT_ADDRESS) {
         throw new Error(
-          "MultiBatch contract address not configured for this chain."
+          "MultiBatch contract address not configured for this chain.",
         );
       }
 
@@ -44,7 +44,7 @@ export function useApproveSmartContract() {
         "function approve(address spender, uint256 amount) public returns (bool)",
       ];
 
-      const approveList = [adminWallet, ...senders]
+      const approveList = [adminWallet, ...senders];
 
       for (const sender of approveList) {
         try {
@@ -77,7 +77,7 @@ export function useApproveSmartContract() {
       }
 
       setApprovalStatus(
-        "All users have approved the multi Batch smart contract."
+        "All users have approved the multi Batch smart contract.",
       );
       setIsApproving(false);
       return true;

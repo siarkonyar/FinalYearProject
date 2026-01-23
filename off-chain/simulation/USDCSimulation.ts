@@ -1,5 +1,5 @@
-import { generateRandomTransaction } from "../lib/generateRandomTransaction";
-import { adminWallet } from "../lib/keys";
+import { generateRandomTransaction } from "../lib/generateRandomUSDCTransaction";
+import { adminWallet } from "../lib/USDCWallets";
 import { ethers } from "ethers";
 import type { SimulationLog, Transaction } from "../types/types";
 import { MULTI_BATCH_CONTRACT_ABI } from "../lib/ABI";
@@ -51,7 +51,7 @@ const simulationLog: SimulationLog = {
 function saveLog() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logFileName = `simulation-log-${timestamp}.json`;
-  const logPath = path.join(process.cwd(), "simulation/logs", logFileName);
+  const logPath = path.join(process.cwd(), "simulation/USDClogs", logFileName);
 
   // Calculate total gas for individual and batched transactions
   const totalIndividualGas = simulationLog.individualTransactions.reduce(
@@ -124,6 +124,8 @@ async function executeBatch(
     console.log(
       `🎉 Batch #${batchNumber} Confirmed! Total Gas: ${batchGasUsed}`,
     );
+
+    console.log("------------------------------------------------");
 
     //add batch to the log
 

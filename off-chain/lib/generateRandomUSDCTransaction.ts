@@ -1,4 +1,4 @@
-import { recipients, senders } from "@/lib/keys";
+import { recipients, senders } from "@/lib/USDCWallets";
 import { getRandomAmount } from "@/lib/randomAmounts";
 import { Transaction } from "@/types/types";
 

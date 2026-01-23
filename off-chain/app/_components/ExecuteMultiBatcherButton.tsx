@@ -1,20 +1,11 @@
 "use client";
 
 import useExecuteMultiBatchContract from "@/hooks/useExecuteMultiBatchContract";
-import { generateRandomBatch } from "@/lib/generateRandomTransaction";
+import { generateRandomBatch } from "@/lib/generateRandomUSDCTransaction";
 import React from "react";
 
 export default function ExecuteMultiBatcherButton() {
-  const {
-    executeMultiBatch,
-    status,
-    isPending,
-    isConfirming,
-    hash,
-    receipt,
-  } = useExecuteMultiBatchContract();
-
-  const isLoading = isPending || isConfirming;
+  const { executeMultiBatch, status, receipt } = useExecuteMultiBatchContract();
 
   const batch = generateRandomBatch(20);
 
@@ -26,14 +17,9 @@ export default function ExecuteMultiBatcherButton() {
 
       <button
         onClick={() => executeMultiBatch(batch)}
-        disabled={isLoading}
-        className={`px-6 py-3 rounded-lg font-semibold text-white transition-all duration-200 ${
-          isLoading
-            ? "bg-gray-400 cursor-not-allowed"
-            : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl"
-        }`}
+        className={`px-6 py-3 rounded-lg font-semibold text-white transition-all duration-200`}
       >
-        {isLoading ? "Processing..." : "Execute Batch"}
+        Execute Batch
       </button>
 
       {status && (
@@ -57,11 +43,6 @@ export default function ExecuteMultiBatcherButton() {
           >
             {status}
           </p>
-          {hash && (
-            <p className="text-xs font-mono mt-2 break-all text-gray-600">
-              TX: {hash}
-            </p>
-          )}
         </div>
       )}
 
@@ -95,17 +76,6 @@ export default function ExecuteMultiBatcherButton() {
                 </span>
               </div>
             </div>
-
-            {hash && (
-              <div className="mt-3 pt-3 border-t border-indigo-100">
-                <p className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold mb-1">
-                  Transaction Hash
-                </p>
-                <p className="text-[11px] font-mono break-all text-gray-700">
-                  {hash}
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}

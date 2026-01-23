@@ -12,6 +12,7 @@
   "dependencies": {
     "@metamask/sdk": "^0.33.1",
     "@tanstack/react-query": "^5.90.16",
+    "@vechain/sdk-core": "^2.0.7",
     "dotenv": "^17.2.3",
     "ethers": "^6.16.0",
     "jsdom": "^27.4.0",

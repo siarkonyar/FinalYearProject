@@ -1,4 +1,4 @@
-import { adminWallet, senders } from "@/lib/keys";
+import { adminWallet, senders } from "@/lib/USDCWallets";
 import { ethers } from "ethers";
 
 const TENDERLY_RPC =
