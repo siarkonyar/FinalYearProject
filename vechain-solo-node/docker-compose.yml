@@ -15,7 +15,7 @@ version: '3'
 #    catches my Hardhat commands, translates them into VeChain REST calls,
 #    and forwards them to the node.
 #
-# 5. use --- docker-compose up --- to run the node
+# 5. use --- docker compose up --- to run the node
 # -----------------------------------------------------------------------------
 
 services:

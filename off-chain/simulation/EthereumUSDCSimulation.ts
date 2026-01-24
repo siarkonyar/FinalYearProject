@@ -12,7 +12,7 @@ dotenv.config();
 const HARDHAT_RPC_URL = "http://127.0.0.1:8545";
 const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const MULTI_BATCH_ADDRESS = process.env
-  .NEXT_PUBLIC_BATCHER_ADDRESS as `0x${string}`;
+  .NEXT_PUBLIC_ETHEREUM_BATCHER_ADDRESS as `0x${string}`;
 const SIMULATION_DURATION = 5 * 60 * 1000;
 const USDC_ABI = [
   {
@@ -51,7 +51,11 @@ const simulationLog: SimulationLog = {
 function saveLog() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logFileName = `simulation-log-${timestamp}.json`;
-  const logPath = path.join(process.cwd(), "simulation/USDClogs", logFileName);
+  const logPath = path.join(
+    process.cwd(),
+    "simulation/EthereumSimulationLogs",
+    logFileName,
+  );
 
   // Calculate total gas for individual and batched transactions
   const totalIndividualGas = simulationLog.individualTransactions.reduce(
