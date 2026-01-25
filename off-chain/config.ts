@@ -23,7 +23,7 @@ const hardhatLocal = defineChain({
     },
   },
 });
-
+/*
 const vechainSolo = defineChain({
   id: 0xf6,
   name: "VeChain Solo",
@@ -43,7 +43,7 @@ const vechainSolo = defineChain({
       address: process.env.NEXT_PUBLIC_VECHAIN_BATCHER_ADDRESS,
     },
   },
-});
+}); */
 
 /* export const tenderly = defineChain({
   id: 1,
@@ -73,8 +73,8 @@ const vechainSolo = defineChain({
 export const config = createConfig({
   chains: [
     hardhatLocal,
-    vechainSolo,
-    /* tenderly,
+    /* vechainSolo,
+    tenderly,
     mainnet,
     sepolia, */
   ],
@@ -92,8 +92,8 @@ export const config = createConfig({
   ],
   transports: {
     [hardhatLocal.id]: http(),
-    [vechainSolo.id]: http(),
-    /* [tenderly.id]: http(),
+    /* [vechainSolo.id]: http(),
+    [tenderly.id]: http(),
     [mainnet.id]: http(),
     [sepolia.id]: http(), */
   },
