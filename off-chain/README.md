@@ -1,3 +1,1 @@
-This Next.js Project is to connect and execute the smart contract the we deployed with the hardhat project.
-
-ABI file is to ...
+npx tsx simulation/EthereumUSDCSimulation.ts

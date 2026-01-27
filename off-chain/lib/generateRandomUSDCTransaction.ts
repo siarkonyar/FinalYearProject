@@ -1,6 +1,10 @@
-import { recipients, senders } from "@/lib/keys";
+import { recipients, senders } from "@/lib/USDCWallets";
 import { getRandomAmount } from "@/lib/randomAmounts";
 import { Transaction } from "@/types/types";
+import {
+  senders as vechainSenders,
+  recipients as vechainRecipients,
+} from "@/lib/vechain-wallets";
 
 const senderAddresses = senders.map((s) => s.address) as `0x${string}`[];
 
@@ -35,6 +39,36 @@ export function generateRandomTransaction(): Transaction {
   const senderPrivateKey = senderPrivateKeys[index];
   const recipient =
     recipientAddresses[Math.floor(Math.random() * recipientAddresses.length)];
+  const amount = getRandomAmount();
+
+  const transaction = {
+    sender: senderAddress,
+    recipient,
+    amount,
+    senderPrivateKey,
+  };
+
+  return transaction;
+}
+
+export function generateRandomVeChainTransaction(): Transaction {
+  const vechainSenderAddresses = vechainSenders.map(
+    (s) => s.address,
+  ) as `0x${string}`[];
+  const vechainSenderPrivateKeys = vechainSenders.map(
+    (s) => s.privateKey,
+  ) as `0x${string}`[];
+  const vechainRecipientAddresses = vechainRecipients.map(
+    (r) => r.address,
+  ) as `0x${string}`[];
+
+  const index = Math.floor(Math.random() * vechainSenders.length);
+  const senderAddress = vechainSenderAddresses[index];
+  const senderPrivateKey = vechainSenderPrivateKeys[index];
+  const recipient =
+    vechainRecipientAddresses[
+      Math.floor(Math.random() * vechainRecipientAddresses.length)
+    ];
   const amount = getRandomAmount();
 
   const transaction = {

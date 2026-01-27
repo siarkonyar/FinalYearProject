@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import type { Transaction } from "@/types/types";
 import useExecuteMultiBatchContract from "@/hooks/useExecuteMultiBatchContract";
 import { useUSDC } from "@/hooks/useUSDC";
-import { generateRandomTransaction } from "@/lib/generateRandomTransaction";
+import { generateRandomTransaction } from "@/lib/generateRandomUSDCTransaction";
 import { useApproveSmartContract } from "@/hooks/useApproveSmartContract";
 
 type TransactionWithGas = Transaction & { gasUsed: string };
@@ -15,8 +15,7 @@ export default function SimulateUSDCTransactions() {
 
   const { sendUsdc } = useUSDC();
 
-  const { approveForAll, isApproving } =
-    useApproveSmartContract();
+  const { approveForAll, isApproving } = useApproveSmartContract();
 
   const [isRunning, setIsRunning] = useState(false);
   const [transactions, setTransactions] = useState<TransactionWithGas[]>([]);

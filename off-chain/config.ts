@@ -19,10 +19,31 @@ const hardhatLocal = defineChain({
   },
   contracts: {
     multiBatch: {
-      address: process.env.NEXT_PUBLIC_BATCHER_ADDRESS,
+      address: process.env.NEXT_PUBLIC_ETHEREUM_BATCHER_ADDRESS,
     },
   },
 });
+/*
+const vechainSolo = defineChain({
+  id: 0xf6,
+  name: "VeChain Solo",
+  nativeCurrency: {
+    decimals: 18,
+    name: "VeChain",
+    symbol: "VET",
+  },
+  rpcUrls: {
+    default: {
+      // Pointing to the PROXY, not the raw node
+      http: ["http://127.0.0.1:8545"],
+    },
+  },
+  contracts: {
+    multiBatch: {
+      address: process.env.NEXT_PUBLIC_VECHAIN_BATCHER_ADDRESS,
+    },
+  },
+}); */
 
 /* export const tenderly = defineChain({
   id: 1,
@@ -52,7 +73,8 @@ const hardhatLocal = defineChain({
 export const config = createConfig({
   chains: [
     hardhatLocal,
-    /* tenderly,
+    /* vechainSolo,
+    tenderly,
     mainnet,
     sepolia, */
   ],
@@ -70,7 +92,8 @@ export const config = createConfig({
   ],
   transports: {
     [hardhatLocal.id]: http(),
-    /* [tenderly.id]: http(),
+    /* [vechainSolo.id]: http(),
+    [tenderly.id]: http(),
     [mainnet.id]: http(),
     [sepolia.id]: http(), */
   },
