@@ -1,9 +1,25 @@
 import {
+  ProviderInternalBaseWallet,
+  signerUtils,
   ThorClient,
   VeChainPrivateKeySigner,
   VeChainProvider,
 } from "@vechain/sdk-network";
-import { Clause, Address, VET, VTHO, Units } from "@vechain/sdk-core";
+import {
+  Clause,
+  Address,
+  VET,
+  VTHO,
+  TransactionClause,
+  HexUInt,
+  Transaction,
+  TransactionBody,
+  networkInfo,
+  Account,
+  Secp256k1,
+  Hex,
+  Units,
+} from "@vechain/sdk-core";
 import * as dotenv from "dotenv";
 import { recipients, godWallet } from "../lib/vechain-wallets";
 import { Mnemonic } from "@vechain/sdk-core";
@@ -13,7 +29,6 @@ dotenv.config();
 // CONFIGURATION
 const THOR_URL = "http://127.0.0.1:8669";
 const USDC_ADDRESS = process.env.NEXT_PUBLIC_VECHAIN_USDC_ADDRESS as string;
-const VTHO_ADDRESS = "0x0000000000000000000000000000456E65726779"; // Built-in VTHO token address
 
 const USDC_ABI = [
   {
@@ -257,105 +272,55 @@ const USDC_ABI = [
   },
 ] as const;
 
-const VTHO_ABI = [
-  {
-    constant: false,
-    inputs: [
-      { name: "recipient", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    name: "transfer",
-    outputs: [{ name: "success", type: "bool" }],
-    payable: false,
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
+const thorSoloClient = ThorClient.at(THOR_URL, {
+  isPollingEnabled: false,
+});
 
 const godMnemonic =
   "denial kitchen pet squirrel other broom bar gas better priority spoil cross";
 const godPrivateKey = Mnemonic.toPrivateKey(godMnemonic.split(" "));
+const godPublicKey = Secp256k1.derivePublicKey(godPrivateKey);
+const godAddress = Address.ofPublicKey(godPublicKey).toString();
+
+const senderAccount: { privateKey: string; address: string } = {
+  privateKey: Hex.of(godPrivateKey).toString(),
+  address: godAddress,
+};
+
+const provider = new VeChainProvider(
+  // Thor client used by the provider
+  thorSoloClient,
+
+  // Internal wallet used by the provider (needed to call the getSigner() method)
+  new ProviderInternalBaseWallet([
+    {
+      privateKey: HexUInt.of(senderAccount.privateKey).bytes,
+      address: senderAccount.address,
+    },
+  ]),
+
+  // Disable fee delegation (BY DEFAULT IT IS DISABLED)
+  false,
+);
 
 async function seed() {
   console.log("🚀 Starting Seeding Process (Native SDK Mode)...");
 
   const thorClient = ThorClient.at(THOR_URL);
 
-  const godSigner = new VeChainPrivateKeySigner(
-    godPrivateKey,
-    new VeChainProvider(thorClient),
-  );
-
-  // Define Amounts
-  const usdcAmount = BigInt(Units.parseUnits("10000", 6).toString()); // 10,000 USDC (6 decimals)
-  const vetAmount = VET.of(10); // 10 VET in wei (returns bigint)
-  const vthoAmount = VTHO.of(5).wei; // 500 VTHO in wei (returns bigint)
+  const clauses: TransactionClause[] = [];
 
   console.log(`📝 Funding ${recipients.length} wallets...`);
-  console.log(
-    `💰 Amounts: ${usdcAmount} USDC, ${vetAmount} VET, ${vthoAmount} VTHO`,
-  );
-
-  // Create contract interfaces
-  const usdcContract = thorClient.contracts.load(USDC_ADDRESS, USDC_ABI);
-
-  const code = await thorClient.accounts.getBytecode(Address.of(USDC_ADDRESS));
-  if (!code) {
-    throw new Error(`No contract found at address ${USDC_ADDRESS}`);
-  }
-  console.log(code);
-  const vthoContract = thorClient.contracts.load(VTHO_ADDRESS, VTHO_ABI);
 
   // Loop & Fund
   for (const recipient of recipients) {
     try {
-      console.log(`💸 Funding wallet ${recipient.id}: ${recipient.address}`);
+      const VETclause = Clause.transferVET(
+        Address.of(recipient.address),
+        VET.of(100),
+      ) as TransactionClause;
 
-      // Build clauses using contract interface
-      const clauses = [
-        // 1. USDC Mint
-        usdcContract.clause.mint(recipient.address, usdcAmount).clause,
-        // 2. VET Transfer (Native transfer)
-        Clause.transferVET(Address.of(recipient.address), vetAmount),
-        // 3. VTHO Transfer
-        vthoContract.clause.transfer(recipient.address, vthoAmount).clause,
-      ];
-
-      // Estimate Gas
-      const gasResult = await thorClient.gas.estimateGas(
-        clauses,
-        godWallet.address,
-      );
-
-      // Build Transaction Body
-      const txBody = await thorClient.transactions.buildTransactionBody(
-        clauses,
-        gasResult.totalGas,
-      );
-
-      // Fix dependsOn type for signTransaction
-      const txBodyFixed = {
-        ...txBody,
-        dependsOn: txBody.dependsOn ?? undefined,
-      };
-
-      // Sign & Send
-      const signedTx = await godSigner.signTransaction(txBodyFixed);
-      // CORRECT
-      const txResult =
-        await thorClient.transactions.sendRawTransaction(signedTx);
-
-      // Wait for Receipt
-      const receipt = await thorClient.transactions.waitForTransaction(
-        txResult.id,
-      );
-
-      if (!receipt) {
-        console.error(
-          `⏰ Timeout waiting for receipt for ${recipient.address}`,
-        );
-        continue;
-      }
+      clauses.push(VETclause);
     } catch (e) {
       console.error(`❌ Failed to fund ${recipient.address}:`, e);
       if (e instanceof Error) {
@@ -364,6 +329,39 @@ async function seed() {
       }
     }
   }
+
+  const gasResult = await thorSoloClient.gas.estimateGas(clauses);
+
+  const txBody = await thorSoloClient.transactions.buildTransactionBody(
+    clauses,
+    gasResult.totalGas,
+  );
+
+  const signer = await provider.getSigner(senderAccount.address);
+
+  const rawSignedTransaction = await signer!.signTransaction(
+    signerUtils.transactionBodyToTransactionRequestInput(
+      txBody,
+      senderAccount.address,
+    ),
+  );
+
+  const signedTransaction = Transaction.decode(
+    HexUInt.of(rawSignedTransaction.slice(2)).bytes,
+    true,
+  );
+
+  // 5 - Send the transaction
+  const sendTransactionResult =
+    await thorSoloClient.transactions.sendTransaction(signedTransaction);
+
+  // 6 - Wait for transaction receipt
+  const txReceipt = await thorSoloClient.transactions.waitForTransaction(
+    sendTransactionResult.id,
+  );
+
+  console.log(txReceipt);
+
   console.log("🏁 Seeding Complete.");
 }
 

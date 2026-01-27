@@ -42,6 +42,13 @@ const noncesFn = batchContract.getFunction("nonces") as ABIFunction;
 // { sender, recipient, amount, senderPrivateKey }
 
 // Sign a single meta‑transaction according to your Solidity logic
+
+async function debugNonces(senders: string[]) {
+  for (const s of senders) {
+    const n = await getNonce(s);
+    console.log(`On-chain nonce for ${s}: ${n}`);
+  }
+}
 async function signMetaTx(
   tx: MetaInputTx,
   nonce: bigint,
@@ -120,6 +127,9 @@ export async function executeMetaBatch(txs: MetaInputTx[]): Promise<void> {
     let nonce = await getNonce(sender); // on‑chain nonce per sender
 
     for (const tx of list) {
+      console.log(`Sender: ${tx.sender}`);
+      console.log(`Amount (Raw): ${tx.amount}`); // Is this 1000000 or 1?
+      console.log(`Nonce: ${nonce}`);
       const sig = await signMetaTx(tx, nonce);
       batchTxs.push({
         sender,
@@ -175,7 +185,7 @@ export async function executeMetaBatch(txs: MetaInputTx[]): Promise<void> {
   console.log("Receipt:", receipt);
 
   console.log("Batch tx id:", sendResult.id);
-/*
+  /*
   const reason = await thorClient.transactions.getRevertReason(sendResult.id);
   console.log("Revert reason:", reason); */
 }
