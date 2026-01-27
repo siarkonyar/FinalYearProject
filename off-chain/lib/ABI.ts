@@ -92,6 +92,11 @@ export const ETH_BATCH_CONTRACT_ABI = [
         name: "amounts",
         type: "uint256[]",
       },
+      {
+        internalType: "bytes[]",
+        name: "signatures",
+        type: "bytes[]",
+      },
     ],
     name: "executeBatch",
     outputs: [],
@@ -99,13 +104,19 @@ export const ETH_BATCH_CONTRACT_ABI = [
     type: "function",
   },
   {
-    inputs: [],
-    name: "targetToken",
-    outputs: [
+    inputs: [
       {
-        internalType: "contract IERC20",
+        internalType: "address",
         name: "",
         type: "address",
+      },
+    ],
+    name: "nonces",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
       },
     ],
     stateMutability: "view",
