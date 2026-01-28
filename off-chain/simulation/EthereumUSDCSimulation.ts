@@ -1,8 +1,12 @@
 import { generateRandomTransaction } from "../lib/generateRandomUSDCTransaction";
-import { adminWallet } from "../lib/USDCWallets";
+import { adminWallet, senders } from "../lib/USDCWallets";
 import { ethers } from "ethers";
-import type { SimulationLog, Transaction } from "../types/types";
-import { MULTI_BATCH_CONTRACT_ABI } from "../lib/ABI";
+import type {
+  IndividualTxLog,
+  SimulationLog,
+  Transaction,
+} from "../types/types";
+import { ETH_BATCH_CONTRACT_ABI } from "../lib/ABI";
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
@@ -11,7 +15,7 @@ dotenv.config();
 
 const HARDHAT_RPC_URL = "http://127.0.0.1:8545";
 const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
-const MULTI_BATCH_ADDRESS = process.env
+const BATCH_CONTRACT_ADDRESS = process.env
   .NEXT_PUBLIC_ETHEREUM_BATCHER_ADDRESS as `0x${string}`;
 const SIMULATION_DURATION = 5 * 60 * 1000;
 const USDC_ABI = [
@@ -48,6 +52,52 @@ const simulationLog: SimulationLog = {
   },
 };
 
+let individualTransactionsBuffer: IndividualTxLog[] = [];
+
+async function approveSmartContractForAll(provider: ethers.JsonRpcProvider) {
+  console.log("Approving smart contract for all...");
+
+  console.log("This operation is performed only once.");
+
+  try {
+    const abi = [
+      "function approve(address spender, uint256 amount) public returns (bool)",
+    ];
+
+    const approveList = [adminWallet, ...senders];
+
+    for (const sender of approveList) {
+      try {
+        //connect to wallet
+        const wallet = new ethers.Wallet(sender.privateKey, provider);
+
+        //connect to smart contract
+        const usdcContract = new ethers.Contract(USDC_ADDRESS, abi, wallet);
+
+        // Send the approval transaction
+        const tx = await usdcContract.approve(
+          BATCH_CONTRACT_ADDRESS,
+          ethers.MaxUint256,
+        );
+
+        await tx.wait();
+      } catch (error) {
+        const errorMsg = `Failed for ${sender.name}: ${
+          (error as Error).message
+        }`;
+        console.error(errorMsg);
+        return false;
+      }
+    }
+
+    console.log("✅ All wallets approved the smart contract.");
+    console.log("------------------------------------------------");
+  } catch (error) {
+    console.log(`Error during approval: ${(error as Error).message}`);
+    return false;
+  }
+}
+
 function saveLog() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logFileName = `simulation-log-${timestamp}.json`;
@@ -82,10 +132,11 @@ async function executeBatch(
   batch: Transaction[],
   batcherWallet: ethers.Wallet,
   batchNumber: number,
+  provider: ethers.JsonRpcProvider,
 ) {
   if (batch.length === 0) {
     console.log(
-      `\n⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
+      `⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
     );
     return;
   }
@@ -98,24 +149,52 @@ async function executeBatch(
     `\n📦 Batch #${batchNumber}: Batching ${batch.length} transactions...`,
   );
 
-  const senders = batch.map((tx) => tx.sender) as `0x${string}`[];
-  const recipientsArr = batch.map((tx) => tx.recipient) as `0x${string}`[];
-  const amounts = batch.map((tx) => tx.amount);
-
   const contract = new ethers.Contract(
-    MULTI_BATCH_ADDRESS,
-    MULTI_BATCH_CONTRACT_ABI,
+    BATCH_CONTRACT_ADDRESS,
+    ETH_BATCH_CONTRACT_ABI,
     batcherWallet,
   );
 
   try {
+    const signatures: string[] = [];
+    const senders = [];
+    const recipients = [];
+    const amounts = [];
+
+    //every sender needs to sign the transaction to be included in the batch
+    for (let i = 0; i < batch.length; i++) {
+      const tx = batch[i];
+
+      const senderWallet = new ethers.Wallet(
+        tx.senderPrivateKey as string,
+        provider,
+      );
+
+      const nonce = await contract.nonces(tx.sender);
+
+      const messageHash = ethers.solidityPackedKeccak256(
+        ["address", "address", "uint256", "uint256"],
+        [tx.sender, tx.recipient, tx.amount, nonce],
+      );
+
+      const signature = await senderWallet.signMessage(
+        ethers.getBytes(messageHash),
+      );
+
+      signatures.push(signature);
+      senders.push(tx.sender);
+      recipients.push(tx.recipient);
+      amounts.push(tx.amount);
+    }
+
     const batchedTx = await contract.executeBatch(
       senders,
-      recipientsArr,
+      recipients,
       amounts,
+      signatures,
     );
 
-    console.log(`🚀 Batch #${batchNumber} Tx Sent: ${batchedTx.hash}`);
+    console.log(`Batch #${batchNumber} Tx Sent: ${batchedTx.hash}`);
 
     const batchedTxReceipt = await batchedTx.wait();
 
@@ -146,19 +225,26 @@ async function executeBatch(
         amount: tx.amount.toString(),
       })),
     });
+
+    //data of individual transactions wont be added to the dataset until the batch is executed without any issues.
+    simulationLog.individualTransactions.push(...individualTransactionsBuffer);
+    individualTransactionsBuffer = [];
   } catch (error) {
-    console.error(`\n❌ Batch #${batchNumber} execution failed:`, error);
+    console.error(`❌ Batch #${batchNumber} execution failed:`, error);
   }
 }
 
 async function USDCSimulation() {
+  const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+
+  await approveSmartContractForAll(provider);
+
   console.log("Starting Background Worker...");
   console.log(
     `⏱️ Simulation Duration: ${SIMULATION_DURATION / 1000 / 60} minutes`,
   );
   console.log(`⏱️ Batch Interval: Every ${BATCH_INTERVAL_MIN} minutes\n`);
 
-  const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
   const batcherWallet = new ethers.Wallet(adminWallet.privateKey, provider);
 
   const startTime = Date.now();
@@ -186,13 +272,9 @@ async function USDCSimulation() {
   try {
     while (Date.now() < endTime) {
       // Check if it's time to execute a batch
-      if (Date.now() >= nextBatchTime) {
-        await executeBatch(batch, batcherWallet, batchNumber);
-        batch = []; // Clear the batch
-        batchNumber++;
-        nextBatchTime += BATCH_INTERVAL_MS; // Schedule next batch
-      } else if (batch.length >= BATCH_SIZE) {
-        await executeBatch(batch, batcherWallet, batchNumber);
+      if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
+        if (Date.now() >= nextBatchTime) nextBatchTime += BATCH_INTERVAL_MS; // schedule the next batch
+        await executeBatch(batch, batcherWallet, batchNumber, provider);
         batch = []; // Clear the batch
         batchNumber++;
       }
@@ -220,13 +302,14 @@ async function USDCSimulation() {
             ? txReceipt.gasUsed.toString()
             : String(txReceipt.gasUsed));
 
-        console.log(`\n✅ Individual Tx: ${tx.hash}`);
+        console.log(`✅ Individual Tx: ${tx.hash}`);
         console.log(`⛽ Gas Used: ${gasUsed}`);
 
         console.log("------------------------------------------------");
 
         //add the transaction to the log, if it fails it wont be added
-        simulationLog.individualTransactions.push({
+        //add them to the buffer first. if the batch fails, we wont add these transactions to the data.
+        individualTransactionsBuffer.push({
           txHash: tx.hash,
           sender: transaction.sender,
           recipient: transaction.recipient,
@@ -247,16 +330,16 @@ async function USDCSimulation() {
     }
     // Execute any remaining transactions in the batch after simulation ends
     if (batch.length > 0) {
-      console.log("\n🔚 Executing final batch with remaining transactions...");
-      await executeBatch(batch, batcherWallet, batchNumber);
+      console.log("Executing final batch with remaining transactions...");
+      await executeBatch(batch, batcherWallet, batchNumber, provider);
     }
 
-    console.log(`\n--- Simulation Complete ---`);
+    console.log(`--- Simulation Complete ---`);
 
     simulationLog.simulationEndTime = Date.now();
     saveLog();
   } catch (error) {
-    console.error("\n❌ FATAL ERROR:", error);
+    console.error("❌ FATAL ERROR:", error);
     simulationLog.simulationEndTime = Date.now();
     saveLog();
   } finally {
