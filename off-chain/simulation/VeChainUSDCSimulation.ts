@@ -91,7 +91,6 @@ function getPoissonDelay(targetTPS: number): number {
 async function executeBatch(
   batch: TransactionType[],
   batchNumber: number,
-  batchIntervalHit: boolean,
 ) {
   if (batch.length === 0) {
     console.log(
@@ -191,7 +190,6 @@ async function executeBatch(
       gasUsed: batchGasUsed,
       timestamp: Date.now(),
       transactionCount: batch.length,
-      batchIntervalHit,
       transactions: batch.map((tx) => ({
         sender: tx.sender,
         recipient: tx.recipient,
@@ -318,11 +316,9 @@ async function VeChainUSDCSimulation() {
       if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
         nextBatchTime = Date.now() + BATCH_INTERVAL_MS;
 
-        const isIntervalHit = Date.now() >= nextBatchTime;
-
         const currentBatch = [...batch];
         batch = []; // Clear the batch
-        await executeBatch(currentBatch, batchNumber, isIntervalHit);
+        await executeBatch(currentBatch, batchNumber);
         batchNumber++;
       }
 
@@ -343,7 +339,7 @@ async function VeChainUSDCSimulation() {
     // Execute any remaining transactions in the batch after simulation ends
     if (batch.length > 0) {
       console.log("\nExecuting final batch with remaining transactions...");
-      await executeBatch(batch, batchNumber, true);
+      await executeBatch(batch, batchNumber);
     }
 
     console.log(`\n--- Simulation Complete ---\n`);

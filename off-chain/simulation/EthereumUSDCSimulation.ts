@@ -78,7 +78,6 @@ async function executeBatch(
   batcherWallet: ethers.Wallet,
   batchNumber: number,
   provider: ethers.JsonRpcProvider,
-  batchIntervalHit: boolean,
 ) {
   if (batch.length === 0) {
     console.log(
@@ -173,7 +172,6 @@ async function executeBatch(
       gasUsed: batchGasUsed,
       timestamp: Date.now(),
       transactionCount: batch.length,
-      batchIntervalHit,
       transactions: batch.map((tx) => ({
         sender: tx.sender,
         recipient: tx.recipient,
@@ -230,13 +228,11 @@ async function USDCSimulation() {
       // Check if it's time to execute a batch
       if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
         nextBatchTime = Date.now() + BATCH_INTERVAL_MS;
-        const isIntervalHit = Date.now() >= nextBatchTime;
         await executeBatch(
           batch,
           batcherWallet,
           batchNumber,
           provider,
-          isIntervalHit,
         );
         batch = []; // Clear the batch
         batchNumber++;
@@ -294,7 +290,7 @@ async function USDCSimulation() {
     // Execute any remaining transactions in the batch after simulation ends
     if (batch.length > 0) {
       console.log("Executing final batch with remaining transactions...");
-      await executeBatch(batch, batcherWallet, batchNumber, provider, true);
+      await executeBatch(batch, batcherWallet, batchNumber, provider);
     }
 
     console.log(`\n--- Simulation Complete ---\n`);

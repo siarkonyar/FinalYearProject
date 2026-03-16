@@ -19,7 +19,6 @@ export interface BatchLog {
   gasUsed: string;
   timestamp: number;
   transactionCount: number;
-  batchIntervalHit: boolean;
   transactions: Array<{
     sender: string;
     recipient: string;
