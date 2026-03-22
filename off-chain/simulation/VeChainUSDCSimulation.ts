@@ -63,6 +63,7 @@ const simulationLog: SimulationLog = {
   simulationDuration: SIMULATION_DURATION,
   batchSize: BATCH_SIZE,
   batchIntervalMinutes: BATCH_INTERVAL_MIN,
+  throughput: TARGET_THROUGHPUT,
   individualTransactions: [],
   batches: [],
   summary: {
@@ -81,13 +82,16 @@ function getPoissonDelay(targetTPS: number): number {
 
   const ratePerMs = targetTPS / 1000;
 
-  //The formula: -ln(1-U) / λ
-  const delayMs = -Math.log(1 - Math.random()) / ratePerMs;
+  //The formula: -ln(U) / λ
+  const delayMs = -Math.log(Math.random()) / ratePerMs;
 
   return delayMs;
 }
 
-async function executeBatch(batch: TransactionType[], batchNumber: number) {
+async function executeBatch(
+  batch: TransactionType[],
+  batchNumber: number,
+) {
   if (batch.length === 0) {
     console.log(
       `\n⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
@@ -140,6 +144,7 @@ async function executeBatch(batch: TransactionType[], batchNumber: number) {
         ethers.getBytes(tx.senderPrivateKey!),
       );
 
+      // Adjust recovery ID from raw Secp256k1 format (0/1) to Ethereum ecrecover format (27/28)
       signature[64] += 27;
 
       signatures.push(Hex.of(signature).toString());
@@ -229,7 +234,6 @@ async function VeChainUSDCSimulation() {
       process.stdout.write(`\r⌛ Time Window Closed.\n`);
       clearInterval(countdownInterval);
     }
-    console.log("\n------------------------------------------------");
   }, 1000);
 
   const processNewTransaction = async (chainTag: number) => {
@@ -311,8 +315,10 @@ async function VeChainUSDCSimulation() {
       // Check if it's time to execute a batch
       if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
         nextBatchTime = Date.now() + BATCH_INTERVAL_MS;
-        await executeBatch(batch, batchNumber);
+
+        const currentBatch = [...batch];
         batch = []; // Clear the batch
+        await executeBatch(currentBatch, batchNumber);
         batchNumber++;
       }
 
