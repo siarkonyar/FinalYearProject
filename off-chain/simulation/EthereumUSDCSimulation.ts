@@ -201,6 +201,8 @@ async function USDCSimulation() {
 
   const batcherWallet = new ethers.Wallet(adminWallet.privateKey, provider);
 
+  let activeProcesses = 0;
+
   const startTime = Date.now();
   const endTime = startTime + SIMULATION_DURATION;
   let nextBatchTime = startTime + BATCH_INTERVAL_MS;
@@ -223,20 +225,9 @@ async function USDCSimulation() {
     }
   }, 1000);
 
-  try {
-    while (Date.now() < endTime) {
-      // Check if it's time to execute a batch
-      if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
-        nextBatchTime = Date.now() + BATCH_INTERVAL_MS;
-        await executeBatch(
-          batch,
-          batcherWallet,
-          batchNumber,
-          provider,
-        );
-        batch = []; // Clear the batch
-        batchNumber++;
-      }
+  const processNewTransaction = async () => {
+    activeProcesses++;
+    try {
       const transaction = await generateRandomTransaction();
 
       const recipient = transaction.recipient;
@@ -251,36 +242,49 @@ async function USDCSimulation() {
         individualWallet,
       );
 
-      try {
-        const tx = await individualUsdc.transfer(recipient, txamount);
-        const txReceipt = await tx.wait();
+      const tx = await individualUsdc.transfer(recipient, txamount);
+      const txReceipt = await tx.wait();
 
-        const gasUsed =
-          txReceipt &&
-          (typeof txReceipt.gasUsed === "bigint"
-            ? txReceipt.gasUsed.toString()
-            : String(txReceipt.gasUsed));
+      const gasUsed =
+        txReceipt &&
+        (typeof txReceipt.gasUsed === "bigint"
+          ? txReceipt.gasUsed.toString()
+          : String(txReceipt.gasUsed));
 
-        console.log(`\n✅ Individual Tx: ${tx.hash}`);
-        console.log(`⛽ Gas Used: ${gasUsed}`);
+      console.log(`\n✅ Individual Tx: ${tx.hash}`);
+      console.log(`⛽ Gas Used: ${gasUsed}`);
 
-        console.log("------------------------------------------------\n");
+      console.log("------------------------------------------------\n");
 
-        //add the transaction to the log, if it fails it wont be added
-        //add them to the buffer first. if the batch fails, we wont add these transactions to the data.
-        individualTransactionsBuffer.push({
-          sender: transaction.sender,
-          recipient: transaction.recipient,
-          amount: transaction.amount.toString(),
-          gasUsed: gasUsed,
-          timestamp: Date.now(),
-        });
+      //add the transaction to the log, if it fails it wont be added
+      //add them to the buffer first. if the batch fails, we wont add these transactions to the data.
+      individualTransactionsBuffer.push({
+        sender: transaction.sender,
+        recipient: transaction.recipient,
+        amount: transaction.amount.toString(),
+        gasUsed: gasUsed,
+        timestamp: Date.now(),
+      });
 
-        batch.push(transaction);
-      } catch (txError) {
-        console.error("\nTransaction failed:", txError);
-        continue;
+      batch.push(transaction);
+    } catch (txError) {
+      console.error("Transaction failed:", txError);
+    } finally {
+      activeProcesses--;
+    }
+  };
+
+  try {
+    while (Date.now() < endTime) {
+      // Check if it's time to execute a batch
+      if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
+        nextBatchTime = Date.now() + BATCH_INTERVAL_MS;
+        await executeBatch(batch, batcherWallet, batchNumber, provider);
+        batch = []; // Clear the batch
+        batchNumber++;
       }
+
+      processNewTransaction();
 
       //manage throughput
       await new Promise((r) =>
