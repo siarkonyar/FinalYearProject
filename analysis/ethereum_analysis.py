@@ -38,8 +38,12 @@ def extract_api_date_from_filename(filename):
 
 
 def fetch_gas_unit_gco2(api_date):
+    import ssl
     url = DIGICONOMIST_API_TEMPLATE.format(date=api_date)
-    with urllib.request.urlopen(url, timeout=10) as response:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     if not payload or "Gas_unit_gCO2" not in payload[0]:
@@ -55,35 +59,25 @@ def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix):
         subset = df[df["throughput"] == throughput].copy()
         intervals = sorted(subset["batchIntervalMinutes"].dropna().unique())
 
-        if not intervals:
-            continue
-
-        fig, axes = plt.subplots(
-            nrows=len(intervals),
-            ncols=1,
-            figsize=(9, 4 * len(intervals)),
-            squeeze=False,
-        )
-
-        for idx, interval in enumerate(intervals):
+        for interval in intervals:
             interval_df = subset[subset["batchIntervalMinutes"] == interval].copy()
             interval_df = interval_df.sort_values("batchSize")
 
-            ax = axes[idx][0]
-            ax.plot(
-                interval_df["batchSize"],
-                interval_df[metric_column],
-                marker="o",
-                linewidth=2,
-            )
+            avg = interval_df[metric_column].mean()
 
-            ax.set_title(f"Throughput={throughput}, Batch Interval={interval} min")
+            fig, ax = plt.subplots(figsize=(9, 4))
+            ax.plot(interval_df["batchSize"], interval_df[metric_column], marker="o", linewidth=2)
+            ax.axhline(avg, color="red", linestyle="--", linewidth=1.2, label=f"Avg: {avg:.4f}")
+            ax.set_title(f"{title_prefix} — Throughput={throughput}, Batch Interval={interval} min")
             ax.set_xlabel("Batch Size")
             ax.set_ylabel(y_label)
+            ax.set_xticks(interval_df["batchSize"])
+            ax.set_yticks(sorted(interval_df[metric_column].tolist() + [avg]))
+            ax.yaxis.set_major_formatter(plt.FormatStrFormatter("%.4f"))
+            ax.tick_params(axis="x", rotation=45)
             ax.grid(True, alpha=0.3)
-
-        fig.suptitle(f"{title_prefix} (Throughput={throughput})", fontsize=14)
-        fig.tight_layout(rect=[0, 0, 1, 0.97])
+            ax.legend()
+            fig.tight_layout()
 
 def main():
     logs_dir = os.path.abspath(ETHEREUM_LOGS_PATH)
@@ -126,6 +120,7 @@ def main():
             gas_result     = analyse_gas(data)
             latency_result = analyse_latency(data)
             co2_saved_kg = (gas_result["gasSaved"] * gas_unit_gco2) / 1000
+            co2_saved_g  = gas_result["gasSaved"] * gas_unit_gco2
 
             merged = {
                 "file": filename,
@@ -133,6 +128,7 @@ def main():
                 **gas_result,
                 "gasUnitgCO2": round(gas_unit_gco2, 12),
                 "co2SavedKg": round(co2_saved_kg, 4),
+                "co2SavedG": round(co2_saved_g, 4),
                 **latency_result,
             }
 
@@ -149,7 +145,7 @@ def main():
 
     col_order = [
         "file", "batchSize", "batchIntervalMinutes", "throughput",
-        "totalIndividualGasUsed", "totalBatchGasUsed", "gasSaved", "percentageSaved", "gasUnitgCO2", "co2SavedKg",
+        "totalIndividualGasUsed", "totalBatchGasUsed", "gasSaved", "percentageSaved", "gasUnitgCO2", "co2SavedKg", "co2SavedG",
         "avgLatencyMs", "minLatencyMs", "maxLatencyMs", "totalTransactionsAnalysed",
     ]
     df = df[[c for c in col_order if c in df.columns]]
@@ -163,9 +159,9 @@ def main():
 
     plot_metric_lines_by_throughput(
         df=df,
-        metric_column="gasSaved",
-        y_label="Gas Saved",
-        title_prefix="Gas Savings vs Batch Size",
+        metric_column="co2SavedG",
+        y_label="Carbon Saved (g CO₂)",
+        title_prefix="Carbon Savings vs Batch Size",
     )
 
     plot_metric_lines_by_throughput(
