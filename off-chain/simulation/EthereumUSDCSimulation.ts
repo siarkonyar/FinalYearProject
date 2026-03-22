@@ -291,6 +291,13 @@ async function USDCSimulation() {
         setTimeout(r, getPoissonDelay(TARGET_THROUGHPUT)),
       );
     }
+
+    //wait for all pending transactions to be executed
+    console.log("\nWaiting for pending transactions...");
+    while (activeProcesses > 0) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
     // Execute any remaining transactions in the batch after simulation ends
     if (batch.length > 0) {
       console.log("Executing final batch with remaining transactions...");
