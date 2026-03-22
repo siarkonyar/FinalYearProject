@@ -46,8 +46,8 @@ def load_csv_gas_unit_gco2():
     gas_df["date"] = pd.to_datetime(gas_df["Date(UTC)"]).dt.normalize()
 
     merged = pd.merge(co2_df[["date", "Estimated, KtCO2e"]], gas_df[["date", "Value"]], on="date")
-    # KtCO2e * 1e12 = gCO2; divide by daily gas to get gCO2 per gas unit
-    merged["gas_unit_gco2_csv"] = (merged["Estimated, KtCO2e"] * 1e12) / merged["Value"].astype(float)
+    # KtCO2e * 1e7 = gCO2 (empirically matched to Digiconomist unit); divide by daily gas to get gCO2 per gas unit
+    merged["gas_unit_gco2_csv"] = (merged["Estimated, KtCO2e"] * 1e7) / merged["Value"].astype(float)
     return merged.set_index("date")["gas_unit_gco2_csv"]
 
 
@@ -98,11 +98,15 @@ def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, sc
                 l1, = ax1.plot(interval_df["batchSize"], v_csv, marker="o", linewidth=2, color="tab:blue", label=label2)
                 ax1.set_ylabel(f"{y_label} ({label2})", color="tab:blue")
                 ax1.tick_params(axis="y", labelcolor="tab:blue")
+                ax1.set_yticks(sorted(v_csv.tolist()))
+                ax1.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
 
                 ax2 = ax1.twinx()
                 l2, = ax2.plot(interval_df["batchSize"], v_digi, marker="s", linewidth=2, color="tab:orange", label=label1)
                 ax2.set_ylabel(f"{y_label} ({label1})", color="tab:orange")
                 ax2.tick_params(axis="y", labelcolor="tab:orange")
+                ax2.set_yticks(sorted(v_digi.tolist()))
+                ax2.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
 
                 ax1.legend(handles=[l1, l2], loc="upper left")
             else:
@@ -157,18 +161,21 @@ def main():
 
             api_date = extract_api_date_from_filename(filename)
 
-            if api_date not in gco2_cache:
-                gco2_cache[api_date] = fetch_gas_unit_gco2(api_date)
-
-            gas_unit_gco2 = gco2_cache[api_date]
-
             # CSV-derived model: look up the most recent date available in both CSVs
             file_date = pd.Timestamp(api_date)
             available = csv_gco2_series.index[csv_gco2_series.index <= file_date]
             if len(available) > 0:
-                gas_unit_gco2_csv = float(csv_gco2_series[available[-1]])
+                csv_resolved_date = available[-1]
+                gas_unit_gco2_csv = float(csv_gco2_series[csv_resolved_date])
             else:
+                csv_resolved_date = None
                 gas_unit_gco2_csv = None
+
+            # Fetch Digiconomist for the same date the CSV model resolved to
+            digi_date = csv_resolved_date.strftime("%Y%m%d") if csv_resolved_date is not None else api_date
+            if digi_date not in gco2_cache:
+                gco2_cache[digi_date] = fetch_gas_unit_gco2(digi_date)
+            gas_unit_gco2 = gco2_cache[digi_date]
 
             shared = {
                 "batchSize": data["batchSize"],
