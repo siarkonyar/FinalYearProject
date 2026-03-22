@@ -3,6 +3,7 @@ export type Transaction = {
   recipient: `0x${string}`;
   amount: bigint;
   senderPrivateKey?: `0x${string}`;
+  timeStamp: number;
 };
 
 export interface IndividualTxLog {
@@ -22,6 +23,7 @@ export interface BatchLog {
     sender: string;
     recipient: string;
     amount: string;
+    timeStamp: number;
   }>;
 }
 
@@ -31,6 +33,7 @@ export interface SimulationLog {
   simulationDuration: number;
   batchSize: number;
   batchIntervalMinutes: number;
+  throughput: number;
   individualTransactions: IndividualTxLog[];
   batches: BatchLog[];
   summary: {

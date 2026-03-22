@@ -30,13 +30,17 @@ const USDC_ABI = [
 ] as const;
 
 //batching variables
-const BATCH_SIZE = Number(process.env.NEXT_PUBLIC_BATCH_SIZE);
-const BATCH_INTERVAL_MIN = Number(process.env.NEXT_PUBLIC_BATCH_INTERVAL_MIN);
+const BATCH_SIZE = Number(process.env.NEXT_PUBLIC_SIMULATION_BATCH_SIZE);
+const BATCH_INTERVAL_MIN = Number(
+  process.env.NEXT_PUBLIC_SIMULATION_BATCH_INTERVAL_MIN,
+);
 const BATCH_INTERVAL_MS = BATCH_INTERVAL_MIN * 60 * 1000;
 const SIMULATION_DURATION_MIN = Number(
   process.env.NEXT_PUBLIC_SIMULATION_DURATION_MIN,
 );
 const SIMULATION_DURATION = SIMULATION_DURATION_MIN * 60 * 1000;
+
+const TARGET_THROUGHPUT = Number(process.env.NEXT_PUBLIC_TARGET_TPS || 5);
 
 const simulationLog: SimulationLog = {
   simulationStartTime: Date.now(),
@@ -44,6 +48,7 @@ const simulationLog: SimulationLog = {
   simulationDuration: SIMULATION_DURATION,
   batchSize: BATCH_SIZE,
   batchIntervalMinutes: BATCH_INTERVAL_MIN,
+  throughput: TARGET_THROUGHPUT,
   individualTransactions: [],
   batches: [],
   summary: {
@@ -56,6 +61,18 @@ const simulationLog: SimulationLog = {
 
 let individualTransactionsBuffer: IndividualTxLog[] = [];
 
+function getPoissonDelay(targetTPS: number): number {
+  //prevent division by zero
+  if (targetTPS <= 0) return 3000;
+
+  const ratePerMs = targetTPS / 1000;
+
+  //The formula: -ln(U) / λ
+  const delayMs = -Math.log(Math.random()) / ratePerMs;
+
+  return delayMs;
+}
+
 async function executeBatch(
   batch: Transaction[],
   batcherWallet: ethers.Wallet,
@@ -64,7 +81,7 @@ async function executeBatch(
 ) {
   if (batch.length === 0) {
     console.log(
-      `⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
+      `\n⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
     );
     return;
   }
@@ -89,6 +106,8 @@ async function executeBatch(
     const recipients = [];
     const amounts = [];
 
+    const senderNoncesMap = new Map<string, bigint>();
+
     //every sender needs to sign the transaction to be included in the batch
     for (let i = 0; i < batch.length; i++) {
       const tx = batch[i];
@@ -98,7 +117,15 @@ async function executeBatch(
         provider,
       );
 
-      const nonce = await contract.nonces(tx.sender);
+      let nonce: bigint;
+
+      if (senderNoncesMap.has(tx.sender)) {
+        nonce = senderNoncesMap.get(tx.sender)!;
+        senderNoncesMap.set(tx.sender, nonce + BigInt(1));
+      } else {
+        nonce = await contract.nonces(tx.sender);
+        senderNoncesMap.set(tx.sender, nonce + BigInt(1));
+      }
 
       const messageHash = ethers.solidityPackedKeccak256(
         ["address", "address", "uint256", "uint256"],
@@ -122,7 +149,7 @@ async function executeBatch(
       signatures,
     );
 
-    console.log(`Batch #${batchNumber} Tx Sent: ${batchedTx.hash}`);
+    console.log(`\nBatch #${batchNumber} Tx Sent: ${batchedTx.hash}`);
 
     const batchedTxReceipt = await batchedTx.wait();
 
@@ -133,10 +160,10 @@ async function executeBatch(
         : String(batchedTxReceipt.gasUsed));
 
     console.log(
-      `🎉 Batch #${batchNumber} Confirmed! Total Gas: ${batchGasUsed}`,
+      `\n🎉 Batch #${batchNumber} Confirmed! Total Gas: ${batchGasUsed}`,
     );
 
-    console.log("------------------------------------------------");
+    console.log("\n------------------------------------------------");
 
     //add batch to the log
 
@@ -149,6 +176,7 @@ async function executeBatch(
         sender: tx.sender,
         recipient: tx.recipient,
         amount: tx.amount.toString(),
+        timeStamp: tx.timeStamp,
       })),
     });
 
@@ -168,8 +196,12 @@ async function USDCSimulation() {
     `⏱️ Simulation Duration: ${SIMULATION_DURATION / 1000 / 60} minutes`,
   );
   console.log(`⏱️ Batch Interval: Every ${BATCH_INTERVAL_MIN} minutes\n`);
+  console.log(`📦Batch Size: ${BATCH_SIZE}`);
+  console.log(`λ Throughput: ${TARGET_THROUGHPUT} per second`);
 
   const batcherWallet = new ethers.Wallet(adminWallet.privateKey, provider);
+
+  let activeProcesses = 0;
 
   const startTime = Date.now();
   const endTime = startTime + SIMULATION_DURATION;
@@ -193,15 +225,9 @@ async function USDCSimulation() {
     }
   }, 1000);
 
-  try {
-    while (Date.now() < endTime) {
-      // Check if it's time to execute a batch
-      if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
-        if (Date.now() >= nextBatchTime) nextBatchTime += BATCH_INTERVAL_MS; // schedule the next batch
-        await executeBatch(batch, batcherWallet, batchNumber, provider);
-        batch = []; // Clear the batch
-        batchNumber++;
-      }
+  const processNewTransaction = async () => {
+    activeProcesses++;
+    try {
       const transaction = await generateRandomTransaction();
 
       const recipient = transaction.recipient;
@@ -216,39 +242,54 @@ async function USDCSimulation() {
         individualWallet,
       );
 
-      try {
-        const tx = await individualUsdc.transfer(recipient, txamount);
-        const txReceipt = await tx.wait();
+      const tx = await individualUsdc.transfer(recipient, txamount);
+      const txReceipt = await tx.wait();
 
-        const gasUsed =
-          txReceipt &&
-          (typeof txReceipt.gasUsed === "bigint"
-            ? txReceipt.gasUsed.toString()
-            : String(txReceipt.gasUsed));
+      const gasUsed =
+        txReceipt &&
+        (typeof txReceipt.gasUsed === "bigint"
+          ? txReceipt.gasUsed.toString()
+          : String(txReceipt.gasUsed));
 
-        console.log(`✅ Individual Tx: ${tx.hash}`);
-        console.log(`⛽ Gas Used: ${gasUsed}`);
+      console.log(`\n✅ Individual Tx: ${tx.hash}`);
+      console.log(`⛽ Gas Used: ${gasUsed}`);
 
-        console.log("------------------------------------------------");
+      console.log("------------------------------------------------\n");
 
-        //add the transaction to the log, if it fails it wont be added
-        //add them to the buffer first. if the batch fails, we wont add these transactions to the data.
-        individualTransactionsBuffer.push({
-          sender: transaction.sender,
-          recipient: transaction.recipient,
-          amount: transaction.amount.toString(),
-          gasUsed: gasUsed,
-          timestamp: Date.now(),
-        });
+      //add the transaction to the log, if it fails it wont be added
+      //add them to the buffer first. if the batch fails, we wont add these transactions to the data.
+      individualTransactionsBuffer.push({
+        sender: transaction.sender,
+        recipient: transaction.recipient,
+        amount: transaction.amount.toString(),
+        gasUsed: gasUsed,
+        timestamp: Date.now(),
+      });
 
-        batch.push(transaction);
-      } catch (txError) {
-        console.error("Transaction failed:", txError);
-        continue;
+      batch.push(transaction);
+    } catch (txError) {
+      console.error("Transaction failed:", txError);
+    } finally {
+      activeProcesses--;
+    }
+  };
+
+  try {
+    while (Date.now() < endTime) {
+      // Check if it's time to execute a batch
+      if (Date.now() >= nextBatchTime || batch.length >= BATCH_SIZE) {
+        nextBatchTime = Date.now() + BATCH_INTERVAL_MS;
+        await executeBatch(batch, batcherWallet, batchNumber, provider);
+        batch = []; // Clear the batch
+        batchNumber++;
       }
 
-      //random delay
-      await new Promise((r) => setTimeout(r, Math.random() * 3000));
+      processNewTransaction();
+
+      //manage throughput
+      await new Promise((r) =>
+        setTimeout(r, getPoissonDelay(TARGET_THROUGHPUT)),
+      );
     }
     // Execute any remaining transactions in the batch after simulation ends
     if (batch.length > 0) {
@@ -256,7 +297,7 @@ async function USDCSimulation() {
       await executeBatch(batch, batcherWallet, batchNumber, provider);
     }
 
-    console.log(`--- Simulation Complete ---`);
+    console.log(`\n--- Simulation Complete ---\n`);
 
     simulationLog.simulationEndTime = Date.now();
     saveLog(simulationLog, "simulation/EthereumSimulationLogs");
