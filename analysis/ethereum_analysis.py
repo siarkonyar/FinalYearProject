@@ -39,20 +39,25 @@ def extract_api_date_from_filename(filename):
 
 def fetch_gas_unit_gco2(api_date):
     import ssl
-    url = DIGICONOMIST_API_TEMPLATE.format(date=api_date)
+    from datetime import datetime, timedelta
+
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
-        payload = json.loads(response.read().decode("utf-8"))
 
-    if not payload or "Gas_unit_gCO2" not in payload[0]:
-        raise ValueError("Gas_unit_gCO2 missing in API response")
+    date = datetime.strptime(api_date, "%Y%m%d")
+    for _ in range(30):
+        url = DIGICONOMIST_API_TEMPLATE.format(date=date.strftime("%Y%m%d"))
+        with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload and "Gas_unit_gCO2" in payload[0]:
+            return float(payload[0]["Gas_unit_gCO2"])
+        date -= timedelta(days=1)
 
-    return float(payload[0]["Gas_unit_gCO2"])
+    raise ValueError(f"Gas_unit_gCO2 not found in API for {api_date} or the 30 preceding days")
 
 
-def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix):
+def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, scale=1.0):
     throughputs = sorted(df["throughput"].dropna().unique())
 
     for throughput in throughputs:
@@ -63,20 +68,22 @@ def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix):
             interval_df = subset[subset["batchIntervalMinutes"] == interval].copy()
             interval_df = interval_df.sort_values("batchSize")
 
-            avg = interval_df[metric_column].mean()
+            values = interval_df[metric_column] / scale
+            avg = values.mean()
 
             fig, ax = plt.subplots(figsize=(9, 4))
-            ax.plot(interval_df["batchSize"], interval_df[metric_column], marker="o", linewidth=2)
-            ax.axhline(avg, color="red", linestyle="--", linewidth=1.2, label=f"Avg: {avg:.4f}")
+            ax.plot(interval_df["batchSize"], values, marker="o", linewidth=2)
+            ax.axhline(avg, color="red", linestyle="--", linewidth=1.2)
+            ax.text(0.02, 0.98, f"Avg: {avg:.2f}", transform=ax.transAxes,
+                    va="top", ha="left", color="red", fontsize=9)
             ax.set_title(f"{title_prefix} — Throughput={throughput}, Batch Interval={interval} min")
             ax.set_xlabel("Batch Size")
             ax.set_ylabel(y_label)
             ax.set_xticks(interval_df["batchSize"])
-            ax.set_yticks(sorted(interval_df[metric_column].tolist() + [avg]))
-            ax.yaxis.set_major_formatter(plt.FormatStrFormatter("%.4f"))
+            ax.set_yticks(sorted(values.tolist()))
+            ax.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
             ax.tick_params(axis="x", rotation=45)
             ax.grid(True, alpha=0.3)
-            ax.legend()
             fig.tight_layout()
 
 def main():
@@ -104,6 +111,12 @@ def main():
 
         try:
             data = load_json(json_file)
+
+            batch_numbers = sorted(b["batchNumber"] for b in data.get("batches", []) if "batchNumber" in b)
+            if not batch_numbers or batch_numbers[0] != 1 or any(batch_numbers[i+1] - batch_numbers[i] > 1 for i in range(len(batch_numbers) - 1)):
+                print(f"  [SKIP] {filename}: batch numbers are not sequential or do not start from 1")
+                continue
+
             api_date = extract_api_date_from_filename(filename)
 
             if api_date not in gco2_cache:
@@ -159,16 +172,24 @@ def main():
 
     plot_metric_lines_by_throughput(
         df=df,
-        metric_column="co2SavedG",
-        y_label="Carbon Saved (g CO₂)",
+        metric_column="co2SavedKg",
+        y_label="Carbon Saved (kg CO₂)",
         title_prefix="Carbon Savings vs Batch Size",
     )
 
     plot_metric_lines_by_throughput(
         df=df,
+        metric_column="percentageSaved",
+        y_label="Carbon Emission Reduction (%)",
+        title_prefix="Carbon Emission Reduction % vs Batch Size",
+    )
+
+    plot_metric_lines_by_throughput(
+        df=df,
         metric_column="avgLatencyMs",
-        y_label="Average Latency (ms)",
+        y_label="Average Latency (s)",
         title_prefix="Average Latency vs Batch Size",
+        scale=1000,
     )
 
     plt.show()
