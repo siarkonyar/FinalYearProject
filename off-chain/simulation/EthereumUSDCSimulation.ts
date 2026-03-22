@@ -263,7 +263,7 @@ async function USDCSimulation() {
         recipient: transaction.recipient,
         amount: transaction.amount.toString(),
         gasUsed: gasUsed,
-        timestamp: Date.now(),
+        timestamp: transaction.timeStamp,
       });
 
       batch.push(transaction);
