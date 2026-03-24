@@ -78,6 +78,60 @@ def fetch_gas_unit_gco2(api_date):
     raise ValueError(f"Gas_unit_gCO2 not found in API for {api_date} or the 30 preceding days")
 
 
+def plot_pareto_front(df):
+    """Scatter plot of Latency vs CO2 Savings to visualise the Pareto Front."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    throughputs = sorted(df["throughput"].dropna().unique())
+    colors = plt.cm.tab10.colors
+
+    for i, throughput in enumerate(throughputs):
+        subset = df[df["throughput"] == throughput]
+        x = subset["avgLatencyMs"] / 1000  # convert to seconds
+        y = subset["co2SavedKg"]
+        ax.scatter(x, y, label=f"T={throughput}", color=colors[i % len(colors)], s=80, zorder=3)
+        for _, row in subset.iterrows():
+            ax.annotate(
+                f"B={int(row['batchSize'])}",
+                (row["avgLatencyMs"] / 1000, row["co2SavedKg"]),
+                textcoords="offset points", xytext=(6, 4), fontsize=7
+            )
+
+    ax.set_xlabel("Average Latency (s)")
+    ax.set_ylabel("CO₂ Saved (kg)")
+    ax.set_title("Pareto Front: Latency vs CO₂ Savings")
+    ax.legend(title="Throughput")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+
+def plot_pareto_front_pct(df):
+    """Scatter plot of Latency vs % Carbon Saved to visualise the Pareto Front."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    throughputs = sorted(df["throughput"].dropna().unique())
+    colors = plt.cm.tab10.colors
+
+    for i, throughput in enumerate(throughputs):
+        subset = df[df["throughput"] == throughput]
+        x = subset["avgLatencyMs"] / 1000
+        y = subset["percentageSaved"]
+        ax.scatter(x, y, label=f"T={throughput}", color=colors[i % len(colors)], s=80, zorder=3)
+        for _, row in subset.iterrows():
+            ax.annotate(
+                f"B={int(row['batchSize'])}",
+                (row["avgLatencyMs"] / 1000, row["percentageSaved"]),
+                textcoords="offset points", xytext=(6, 4), fontsize=7
+            )
+
+    ax.set_xlabel("Average Latency (s)")
+    ax.set_ylabel("Carbon Emission Reduction (%)")
+    ax.set_title("Pareto Front: Latency vs Carbon Emission Reduction %")
+    ax.legend(title="Throughput")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+
 def plot_latency_boxplot(json_files):
     """Collect all individual transaction latencies per batch size, split by throughput, and plot box plots."""
     from collections import defaultdict
@@ -295,6 +349,9 @@ def main():
 
     processed_files = [r["file"] for r in rows]
     plot_latency_boxplot([f for f in json_files if os.path.basename(f) in processed_files])
+
+    plot_pareto_front(df)
+    plot_pareto_front_pct(df)
 
     plt.show()
 
