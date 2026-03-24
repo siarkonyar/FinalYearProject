@@ -78,6 +78,48 @@ def fetch_gas_unit_gco2(api_date):
     raise ValueError(f"Gas_unit_gCO2 not found in API for {api_date} or the 30 preceding days")
 
 
+def plot_latency_boxplot(json_files):
+    """Collect all individual transaction latencies per batch size, split by throughput, and plot box plots."""
+    from collections import defaultdict
+    # { throughput: { batch_size: [latencies] } }
+    data_map = defaultdict(lambda: defaultdict(list))
+
+    for json_file in json_files:
+        with open(json_file) as f:
+            data = json.load(f)
+        batch_size = data.get("batchSize")
+        throughput = data.get("throughput")
+        if batch_size is None or throughput is None:
+            continue
+        for batch in data.get("batches", []):
+            batch_ts = batch.get("timestamp")
+            if batch_ts is None:
+                continue
+            for tx in batch.get("transactions", []):
+                tx_ts = tx.get("timeStamp")
+                if tx_ts is not None:
+                    data_map[throughput][batch_size].append((batch_ts - tx_ts) / 1000)
+
+    if not data_map:
+        return
+
+    throughputs = sorted(data_map)
+    fig, axes = plt.subplots(1, len(throughputs), figsize=(6 * len(throughputs), 6), sharey=True)
+    if len(throughputs) == 1:
+        axes = [axes]
+
+    for ax, throughput in zip(axes, throughputs):
+        sorted_sizes = sorted(data_map[throughput])
+        ax.boxplot([data_map[throughput][s] for s in sorted_sizes], labels=sorted_sizes, patch_artist=True, showfliers=True)
+        ax.set_title(f"Throughput = {throughput}")
+        ax.set_xlabel("Batch Size")
+        ax.grid(True, axis="y", alpha=0.3)
+
+    axes[0].set_ylabel("Transaction Latency (s)")
+    fig.suptitle("Transaction Latency Distribution by Batch Size")
+    fig.tight_layout()
+
+
 def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, scale=1.0, metric_column2=None, label1="Digiconomist", label2="CSV Model"):
     throughputs = sorted(df["throughput"].dropna().unique())
 
@@ -250,6 +292,9 @@ def main():
         title_prefix="Average Latency vs Batch Size",
         scale=1000,
     )
+
+    processed_files = [r["file"] for r in rows]
+    plot_latency_boxplot([f for f in json_files if os.path.basename(f) in processed_files])
 
     plt.show()
 
