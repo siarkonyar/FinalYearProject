@@ -245,8 +245,7 @@ def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, sc
                 avg = values.mean()
                 ax1.plot(interval_df["batchSize"], values, marker="o", linewidth=2)
                 ax1.axhline(avg, color="red", linestyle="--", linewidth=1.2)
-                ax1.text(0.02, 0.98, f"Avg: {avg:.2f}", transform=ax1.transAxes,
-                         va="top", ha="left", color="red", fontsize=9)
+                ax1.text(0.02, 0.98, f"Avg: {avg:.2f}", transform=ax1.transAxes, va="top", ha="left", color="red", fontsize=9)
                 ax1.set_ylabel(y_label)
                 ax1.set_yticks(sorted(values.tolist()))
                 ax1.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
@@ -291,7 +290,7 @@ def main():
     if not json_files:
         print(f"No JSON files found in: {logs_dir}")
         sys.exit(1)
-
+  
     print_header("Ethereum Gas & Latency Analysis")
     print(f"  Found {len(json_files)} log file(s)\n")
 
