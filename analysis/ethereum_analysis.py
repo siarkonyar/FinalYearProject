@@ -78,6 +78,41 @@ def fetch_gas_unit_gco2(api_date):
     raise ValueError(f"Gas_unit_gCO2 not found in API for {api_date} or the 30 preceding days")
 
 
+def plot_co2_grouped_bar(df):
+    """Grouped bar chart: Unbatched vs Optimised CO2 per throughput level."""
+    throughputs = sorted(df["throughput"].dropna().unique())
+
+    # For each throughput, take the best (min batch CO2) configuration
+    unbatched_co2 = []
+    batched_co2 = []
+
+    for t in throughputs:
+        subset = df[df["throughput"] == t]
+        # Use the row with the lowest batched CO2 as the "optimised" result
+        best = subset.loc[subset["co2SavedKg"].idxmax()]
+        unit = best["gasUnitgCO2"]
+        unbatched_co2.append((best["totalIndividualGasUsed"] * unit) / 1000)
+        batched_co2.append((best["totalBatchGasUsed"] * unit) / 1000)
+
+    x = range(len(throughputs))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars1 = ax.bar([i - width / 2 for i in x], unbatched_co2, width, label="Unbatched Baseline CO₂", color="tab:red", alpha=0.8)
+    bars2 = ax.bar([i + width / 2 for i in x], batched_co2, width, label="Optimised Batching CO₂", color="tab:green", alpha=0.8)
+
+    ax.set_xlabel("Throughput (tx/s)")
+    ax.set_ylabel("CO₂ Emissions (kg)")
+    ax.set_title("Unbatched vs Optimised Batching CO₂ by Throughput")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([f"T={t}" for t in throughputs])
+    ax.legend()
+    ax.bar_label(bars1, fmt="%.3f", padding=3, fontsize=8)
+    ax.bar_label(bars2, fmt="%.3f", padding=3, fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+
+
 def plot_pareto_front(df):
     """Scatter plot of Latency vs CO2 Savings to visualise the Pareto Front."""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -352,6 +387,7 @@ def main():
 
     plot_pareto_front(df)
     plot_pareto_front_pct(df)
+    plot_co2_grouped_bar(df)
 
     plt.show()
 
