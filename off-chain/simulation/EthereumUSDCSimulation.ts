@@ -107,10 +107,11 @@ async function executeBatch(
     const amounts = [];
 
     const senderNoncesMap = new Map<string, bigint>();
+    const batchSnapshot = [...batch]
 
     //every sender needs to sign the transaction to be included in the batch
-    for (let i = 0; i < batch.length; i++) {
-      const tx = batch[i];
+    for (let i = 0; i < batchSnapshot.length; i++) {
+      const tx = batchSnapshot[i];
 
       const senderWallet = new ethers.Wallet(
         tx.senderPrivateKey as string,
