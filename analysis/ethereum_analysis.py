@@ -258,6 +258,27 @@ def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, sc
             ax1.grid(True, alpha=0.3)
             fig.tight_layout()
 
+def print_summary_table(df):
+    """Print a structured table of independent variables vs key numerical outputs."""
+    print_header("Independent Variables vs Numerical Outputs")
+
+    cols = {
+        "Throughput": "throughput",
+        "Batch Interval (min)": "batchIntervalMinutes",
+        "Batch Size": "batchSize",
+        "Total Gas Used": "totalBatchGasUsed",
+        "Total CO2 Saved (kg)": "co2SavedKg",
+        "Mean Latency (ms)": "avgLatencyMs",
+        "Max Latency (ms)": "maxLatencyMs",
+    }
+
+    table = df[[v for v in cols.values() if v in df.columns]].copy()
+    table = table.sort_values(["throughput", "batchIntervalMinutes", "batchSize"])
+    table.columns = [k for k, v in cols.items() if v in df.columns]
+
+    print(table.to_string(index=False))
+
+
 def main():
     logs_dir = os.path.abspath(ETHEREUM_LOGS_PATH)
 
@@ -358,6 +379,8 @@ def main():
     print_header("Summary")
     print(df.to_string(index=False))
     print(f"\n✅ Results saved to: {OUTPUT_PATH}")
+
+    print_summary_table(df)
 
     plot_metric_lines_by_throughput(
         df=df,
