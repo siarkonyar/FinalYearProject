@@ -3,31 +3,104 @@ import os
 import json
 import glob
 import re
+from datetime import date
 import pandas as pd
 import matplotlib.pyplot as plt
+import requests
+from dotenv import load_dotenv
 
-# Commented out until API key is resolved
-# import requests
-# from datetime import date, timedelta
-# from dotenv import load_dotenv
-#
-# load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
-# API_KEY = os.getenv("API_KEY")
-# HEADERS = {"X-API-Key": API_KEY}
-#
-# def fetch_daily_emission(day: str) -> dict:
-#     """Fetch network CO2e emission for a specific day (YYYY-MM-DD)."""
-#     resp = requests.get("https://api.vechainstats.com/v2/carbon/co2e-network",
-#                         params={"timeframe": day}, headers=HEADERS)
-#     resp.raise_for_status()
-#     return resp.json()
-#
-# def fetch_daily_gas_stats(day: str) -> dict:
-#     """Fetch network gas limit/used stats for a specific day (YYYY-MM-DD)."""
-#     resp = requests.get("https://api.vechainstats.com/v2/network/gas-stats",
-#                         params={"timeframe": day}, headers=HEADERS)
-#     resp.raise_for_status()
-#     return resp.json()
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+API_KEY = os.getenv("API_KEY")
+
+
+def _get_api_headers() -> dict:
+    if not API_KEY:
+        raise RuntimeError("Missing API_KEY. Add it to analysis/.env or project-root .env")
+    return {"X-API-Key": API_KEY}
+
+
+def fetch_daily_emission(day: str) -> dict:
+    """Fetch network CO2e emission for a specific day (YYYY-MM-DD)."""
+    resp = requests.get(
+        "https://api.vechainstats.com/v2/carbon/co2e-network",
+        params={"timeframe": day},
+        headers=_get_api_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_daily_gas_stats(day: str) -> dict:
+    """Fetch network gas limit/used stats for a specific day (YYYY-MM-DD)."""
+    resp = requests.get(
+        "https://api.vechainstats.com/v2/network/gas-stats",
+        params={"timeframe": day},
+        headers=_get_api_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _to_float(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "")
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
+
+
+def _extract_first_numeric(payload, key_hints):
+    """Find the first numeric value in nested JSON where key matches a hint."""
+    queue = [payload]
+    hints = [h.lower() for h in key_hints]
+
+    while queue:
+        current = queue.pop(0)
+
+        if isinstance(current, dict):
+            for key, value in current.items():
+                key_l = str(key).lower()
+                numeric = _to_float(value)
+                if numeric is not None and any(h in key_l for h in hints):
+                    return numeric
+                if isinstance(value, (dict, list)):
+                    queue.append(value)
+        elif isinstance(current, list):
+            queue.extend(current)
+
+    return None
+
+
+def get_today_gas_to_carbon_factor():
+    """Get today's network-level CO2e per gas used for VeChain."""
+    day = date.today().isoformat()
+    emission_payload = fetch_daily_emission(day)
+    gas_payload = fetch_daily_gas_stats(day)
+
+    co2e_total = _extract_first_numeric(
+        emission_payload,
+        ["co2e", "co2", "carbon", "emission"],
+    )
+    gas_used_total = _extract_first_numeric(
+        gas_payload,
+        ["gasused", "gas_used", "usedgas", "totalgasused", "gas"],
+    )
+
+    if co2e_total is None:
+        raise RuntimeError(f"Could not find CO2e value in emission response for {day}")
+    if gas_used_total is None or gas_used_total <= 0:
+        raise RuntimeError(f"Could not find positive gas-used value in gas response for {day}")
+
+    return day, (co2e_total / gas_used_total), emission_payload, gas_payload
 
 sys.path.insert(0, os.path.dirname(__file__))
 from modules.gas_analysis import analyse_gas
@@ -52,7 +125,7 @@ def print_header(title):
 
 
 def plot_co2_grouped_bar(df):
-    """Grouped bar chart: Unbatched vs Optimised gas used per throughput level (labelled as CO₂)."""
+    """Grouped bar chart: Unbatched vs Optimised CO2e emissions per throughput level."""
     throughputs = sorted(df["throughput"].dropna().unique())
 
     unbatched = []
@@ -61,8 +134,8 @@ def plot_co2_grouped_bar(df):
     for t in throughputs:
         subset = df[df["throughput"] == t]
         best = subset.loc[subset["gasSaved"].idxmax()]
-        unbatched.append(best["totalIndividualGasUsed"])
-        batched.append(best["totalBatchGasUsed"])
+        unbatched.append(best["totalIndividualCO2e"])
+        batched.append(best["totalBatchCO2e"])
 
     x = range(len(throughputs))
     width = 0.35
@@ -72,19 +145,19 @@ def plot_co2_grouped_bar(df):
     bars2 = ax.bar([i + width / 2 for i in x], batched, width, label="Optimised Batching CO₂", color="tab:green", alpha=0.8)
 
     ax.set_xlabel("Throughput (tx/s)")
-    ax.set_ylabel("Gas Used (proxy for CO₂ Emissions)")
-    ax.set_title("Unbatched vs Optimised Batching CO₂ by Throughput")
+    ax.set_ylabel("CO2e Emissions (network-derived units)")
+    ax.set_title("Unbatched vs Optimised Batching CO₂ by Throughput (2-Hour Simulations)")
     ax.set_xticks(list(x))
     ax.set_xticklabels([f"T={t}" for t in throughputs])
     ax.legend()
-    ax.bar_label(bars1, fmt="%.0f", padding=3, fontsize=8)
-    ax.bar_label(bars2, fmt="%.0f", padding=3, fontsize=8)
+    ax.bar_label(bars1, fmt="%.2f", padding=3, fontsize=8)
+    ax.bar_label(bars2, fmt="%.2f", padding=3, fontsize=8)
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
 
 
 def plot_pareto_front(df):
-    """Scatter plot of Latency vs Gas Saved (proxy for CO₂ Savings) — Pareto Front."""
+    """Scatter plot of Latency vs CO2e Saved — Pareto Front."""
     fig, ax = plt.subplots(figsize=(10, 6))
     throughputs = sorted(df["throughput"].dropna().unique())
     colors = plt.cm.tab10.colors
@@ -92,14 +165,14 @@ def plot_pareto_front(df):
     for i, throughput in enumerate(throughputs):
         subset = df[df["throughput"] == throughput]
         x = subset["avgLatencyMs"] / 1000
-        y = subset["gasSaved"]
+        y = subset["co2Saved"]
         ax.scatter(x, y, label=f"T={throughput}", color=colors[i % len(colors)], s=80, zorder=3)
         for _, row in subset.iterrows():
-            ax.annotate(f"B={int(row['batchSize'])}", (row["avgLatencyMs"] / 1000, row["gasSaved"]),
+            ax.annotate(f"B={int(row['batchSize'])}", (row["avgLatencyMs"] / 1000, row["co2Saved"]),
                         textcoords="offset points", xytext=(6, 4), fontsize=7)
 
     ax.set_xlabel("Average Latency (s)")
-    ax.set_ylabel("CO₂ Saved (gas units)")
+    ax.set_ylabel("CO₂ Saved (network-derived units)")
     ax.set_title("Pareto Front: Latency vs CO₂ Savings")
     ax.legend(title="Throughput")
     ax.grid(True, alpha=0.3)
@@ -123,14 +196,14 @@ def plot_pareto_front_pct(df):
 
     ax.set_xlabel("Average Latency (s)")
     ax.set_ylabel("Carbon Emission Reduction (%)")
-    ax.set_title("Pareto Front: Latency vs Carbon Emission Reduction %")
+    ax.set_title("Pareto Front: Latency vs Carbon Emission Reduction % (2-Hour Simulations)")
     ax.legend(title="Throughput")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
 
 
 def plot_latency_boxplot(json_files):
-    """Box plots of transaction latency per batch size, split by throughput."""
+    """Violin plots of transaction latency per batch size, split by throughput."""
     from collections import defaultdict
     data_map = defaultdict(lambda: defaultdict(list))
 
@@ -160,9 +233,16 @@ def plot_latency_boxplot(json_files):
 
     for ax, throughput in zip(axes, throughputs):
         sorted_sizes = sorted(data_map[throughput])
-        ax.boxplot([data_map[throughput][s] for s in sorted_sizes], tick_labels=sorted_sizes, patch_artist=True, showfliers=True)
+        ax.violinplot(
+            [data_map[throughput][s] for s in sorted_sizes],
+            positions=range(len(sorted_sizes)),
+            showmeans=True,
+            showmedians=True,
+        )
         ax.set_title(f"Throughput = {throughput}")
         ax.set_xlabel("Batch Size")
+        ax.set_xticks(range(len(sorted_sizes)))
+        ax.set_xticklabels(sorted_sizes)
         ax.grid(True, axis="y", alpha=0.3)
 
     axes[0].set_ylabel("Transaction Latency (s)")
@@ -205,7 +285,8 @@ def print_summary_table(df):
         "Batch Interval (min)": "batchIntervalMinutes",
         "Batch Size": "batchSize",
         "Total Gas Used": "totalBatchGasUsed",
-        "Gas Saved (CO₂ proxy)": "gasSaved",
+        "Gas Saved": "gasSaved",
+        "CO₂ Saved": "co2Saved",
         "% Saved": "percentageSaved",
         "Mean Latency (ms)": "avgLatencyMs",
         "Max Latency (ms)": "maxLatencyMs",
@@ -213,7 +294,7 @@ def print_summary_table(df):
     table = df[[v for v in cols.values() if v in df.columns]].copy()
     table = table.sort_values(["throughput", "batchIntervalMinutes", "batchSize"])
     table.columns = [k for k, v in cols.items() if v in df.columns]
-    print(table.to_string(index=False))
+    print(table.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
 
 
 def main():
@@ -231,6 +312,13 @@ def main():
 
     print_header("VeChain Gas & Latency Analysis")
     print(f"  Found {len(json_files)} log file(s)\n")
+
+    try:
+        factor_day, gas_to_carbon_factor, emission_payload, gas_payload = get_today_gas_to_carbon_factor()
+        print(f"  Using gas->CO2e factor for {factor_day}: {gas_to_carbon_factor:.12f}")
+    except Exception as e:
+        print(f"Error: Could not derive gas->CO2e factor from VeChain APIs: {e}")
+        sys.exit(1)
 
     rows = []
 
@@ -255,6 +343,13 @@ def main():
                 "batchIntervalMinutes": data["batchIntervalMinutes"],
                 "throughput": data["throughput"],
                 **gas_result,
+                "vechainApiDateUsed": factor_day,
+                "vechainEmissionApiResponse": json.dumps(emission_payload, separators=(",", ":")),
+                "vechainGasApiResponse": json.dumps(gas_payload, separators=(",", ":")),
+                "gasToCarbonFactor": gas_to_carbon_factor,
+                "totalIndividualCO2e": gas_result["totalIndividualGasUsed"] * gas_to_carbon_factor,
+                "totalBatchCO2e": gas_result["totalBatchGasUsed"] * gas_to_carbon_factor,
+                "co2Saved": gas_result["gasSaved"] * gas_to_carbon_factor,
                 **latency_result,
             })
 
@@ -270,6 +365,8 @@ def main():
     col_order = [
         "file", "batchSize", "batchIntervalMinutes", "throughput",
         "totalIndividualGasUsed", "totalBatchGasUsed", "gasSaved", "percentageSaved",
+        "vechainApiDateUsed", "vechainEmissionApiResponse", "vechainGasApiResponse",
+        "gasToCarbonFactor", "totalIndividualCO2e", "totalBatchCO2e", "co2Saved",
         "avgLatencyMs", "minLatencyMs", "maxLatencyMs", "totalTransactionsAnalysed",
     ]
     df = df[[c for c in col_order if c in df.columns]]
@@ -278,12 +375,12 @@ def main():
     df.to_csv(OUTPUT_PATH, index=False)
 
     print_header("Summary")
-    print(df.to_string(index=False))
+    print(df.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
     print(f"\n✅ Results saved to: {OUTPUT_PATH}")
 
     print_summary_table(df)
 
-    plot_metric_lines_by_throughput(df, "gasSaved", "CO₂ Saved (gas units)", "Carbon Savings vs Batch Size")
+    plot_metric_lines_by_throughput(df, "co2Saved", "CO₂ Saved", "Carbon Savings vs Batch Size (2-Hour Simulations)")
     plot_metric_lines_by_throughput(df, "percentageSaved", "Carbon Emission Reduction (%)", "Carbon Emission Reduction % vs Batch Size")
     plot_metric_lines_by_throughput(df, "avgLatencyMs", "Average Latency (s)", "Average Latency vs Batch Size", scale=1000)
 

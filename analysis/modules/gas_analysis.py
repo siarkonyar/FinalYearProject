@@ -1,8 +1,5 @@
 def analyse_gas(data):
-    total_individual = sum(
-        int(tx["gasUsed"])
-        for tx in data.get("individualTransactions", [])
-    )
+    total_individual = int(data["summary"]["totalIndividualGasUsed"])
 
     total_batch = int(data["summary"]["totalBatchGasUsed"])
 

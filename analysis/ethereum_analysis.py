@@ -29,6 +29,10 @@ ETHEREUM_LOGS_PATH = os.path.join(
 OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "results", "ethereum_results.csv")
 DIGICONOMIST_API_TEMPLATE = "https://digiconomist.net/wp-json/mo/v1/ethereum/stats/{date}"
 
+
+class DigiconomistAPIError(RuntimeError):
+    pass
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CO2_CSV_PATH = os.path.join(DATA_DIR, "ethereum-daily-co2.csv")
 GAS_CSV_PATH = os.path.join(DATA_DIR, "ethereum-daily-gas.csv")
@@ -68,33 +72,43 @@ def fetch_gas_unit_gco2(api_date):
 
     date = datetime.strptime(api_date, "%Y%m%d")
     for _ in range(30):
-        url = DIGICONOMIST_API_TEMPLATE.format(date=date.strftime("%Y%m%d"))
+        query_date = date.strftime("%Y%m%d")
+        url = DIGICONOMIST_API_TEMPLATE.format(date=query_date)
         with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if payload and "Gas_unit_gCO2" in payload[0]:
-            return float(payload[0]["Gas_unit_gCO2"])
+            return float(payload[0]["Gas_unit_gCO2"]), query_date, payload
         date -= timedelta(days=1)
 
     raise ValueError(f"Gas_unit_gCO2 not found in API for {api_date} or the 30 preceding days")
 
 
-def plot_co2_grouped_bar(df):
-    """Grouped bar chart: Unbatched vs Optimised CO2 per throughput level."""
+def plot_co2_grouped_bar(df, target_batch_size=150):
+    """Grouped bar chart: Unbatched vs Optimised CO2 per throughput level for a fixed batch size."""
     throughputs = sorted(df["throughput"].dropna().unique())
 
-    # For each throughput, take the best (min batch CO2) configuration
+    # For each throughput, use the requested batch size only.
+    plot_throughputs = []
     unbatched_co2 = []
     batched_co2 = []
 
     for t in throughputs:
-        subset = df[df["throughput"] == t]
-        # Use the row with the lowest batched CO2 as the "optimised" result
-        best = subset.loc[subset["co2SavedKg"].idxmax()]
-        unit = best["gasUnitgCO2"]
-        unbatched_co2.append((best["totalIndividualGasUsed"] * unit) / 1000)
-        batched_co2.append((best["totalBatchGasUsed"] * unit) / 1000)
+        subset = df[(df["throughput"] == t) & (df["batchSize"] == target_batch_size)]
+        if subset.empty:
+            print(f"  [INFO] No batchSize={target_batch_size} data for throughput {t}; skipping in grouped CO2 chart")
+            continue
 
-    x = range(len(throughputs))
+        selected = subset.iloc[0]
+        unit = selected["gasUnitgCO2"]
+        plot_throughputs.append(t)
+        unbatched_co2.append((selected["totalIndividualGasUsed"] * unit) / 1000)
+        batched_co2.append((selected["totalBatchGasUsed"] * unit) / 1000)
+
+    if not plot_throughputs:
+        print(f"  [INFO] No data available for batchSize={target_batch_size}; grouped CO2 chart not shown")
+        return
+
+    x = range(len(plot_throughputs))
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -103,12 +117,12 @@ def plot_co2_grouped_bar(df):
 
     ax.set_xlabel("Throughput (tx/s)")
     ax.set_ylabel("CO₂ Emissions (kg)")
-    ax.set_title("Unbatched vs Optimised Batching CO₂ by Throughput")
+    ax.set_title(f"Unbatched vs Optimised Batching CO₂ by Throughput (Batch Size={target_batch_size}, 2-Hour Simulations)")
     ax.set_xticks(list(x))
-    ax.set_xticklabels([f"T={t}" for t in throughputs])
+    ax.set_xticklabels([f"T={t}" for t in plot_throughputs])
     ax.legend()
-    ax.bar_label(bars1, fmt="%.3f", padding=3, fontsize=8)
-    ax.bar_label(bars2, fmt="%.3f", padding=3, fontsize=8)
+    ax.bar_label(bars1, fmt="%.2f", padding=3, fontsize=8)
+    ax.bar_label(bars2, fmt="%.2f", padding=3, fontsize=8)
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
 
@@ -161,14 +175,14 @@ def plot_pareto_front_pct(df):
 
     ax.set_xlabel("Average Latency (s)")
     ax.set_ylabel("Carbon Emission Reduction (%)")
-    ax.set_title("Pareto Front: Latency vs Carbon Emission Reduction %")
+    ax.set_title("Pareto Front: Latency vs Carbon Emission Reduction % (2-Hour Simulations)")
     ax.legend(title="Throughput")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
 
 
 def plot_latency_boxplot(json_files):
-    """Collect all individual transaction latencies per batch size, split by throughput, and plot box plots."""
+    """Collect all individual transaction latencies per batch size, split by throughput, and plot violin plots."""
     from collections import defaultdict
     # { throughput: { batch_size: [latencies] } }
     data_map = defaultdict(lambda: defaultdict(list))
@@ -199,9 +213,11 @@ def plot_latency_boxplot(json_files):
 
     for ax, throughput in zip(axes, throughputs):
         sorted_sizes = sorted(data_map[throughput])
-        ax.boxplot([data_map[throughput][s] for s in sorted_sizes], labels=sorted_sizes, patch_artist=True, showfliers=True)
+        ax.violinplot([data_map[throughput][s] for s in sorted_sizes], positions=range(len(sorted_sizes)), showmeans=True, showmedians=True)
         ax.set_title(f"Throughput = {throughput}")
         ax.set_xlabel("Batch Size")
+        ax.set_xticks(range(len(sorted_sizes)))
+        ax.set_xticklabels(sorted_sizes)
         ax.grid(True, axis="y", alpha=0.3)
 
     axes[0].set_ylabel("Transaction Latency (s)")
@@ -209,7 +225,7 @@ def plot_latency_boxplot(json_files):
     fig.tight_layout()
 
 
-def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, scale=1.0, metric_column2=None, label1="Digiconomist", label2="CSV Model"):
+def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, scale=1.0, metric_column2=None, label1="Digiconomist", label2="Primary Model"):
     throughputs = sorted(df["throughput"].dropna().unique())
 
     for throughput in throughputs:
@@ -275,7 +291,7 @@ def print_summary_table(df):
     table = table.sort_values(["throughput", "batchIntervalMinutes", "batchSize"])
     table.columns = [k for k, v in cols.items() if v in df.columns]
 
-    print(table.to_string(index=False))
+    print(table.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
 
 
 def main():
@@ -290,7 +306,7 @@ def main():
     if not json_files:
         print(f"No JSON files found in: {logs_dir}")
         sys.exit(1)
-  
+
     print_header("Ethereum Gas & Latency Analysis")
     print(f"  Found {len(json_files)} log file(s)\n")
 
@@ -322,11 +338,16 @@ def main():
                 csv_resolved_date = None
                 gas_unit_gco2_csv = None
 
-            # Fetch Digiconomist for the same date the CSV model resolved to
+            # Fetch Digiconomist for the same date the primary model resolved to.
             digi_date = csv_resolved_date.strftime("%Y%m%d") if csv_resolved_date is not None else api_date
             if digi_date not in gco2_cache:
-                gco2_cache[digi_date] = fetch_gas_unit_gco2(digi_date)
-            gas_unit_gco2 = gco2_cache[digi_date]
+                try:
+                    gco2_cache[digi_date] = fetch_gas_unit_gco2(digi_date)
+                except Exception as api_err:
+                    raise DigiconomistAPIError(
+                        f"Digiconomist API unavailable for {filename}: {api_err}"
+                    ) from api_err
+            gas_unit_gco2, digiconomist_response_date, digiconomist_response_payload = gco2_cache[digi_date]
 
             shared = {
                 "batchSize": data["batchSize"],
@@ -343,17 +364,23 @@ def main():
                 "file": filename,
                 **shared,
                 **gas_result,
+                "digiconomistRequestedDate": digi_date,
+                "digiconomistResponseDate": digiconomist_response_date,
+                "digiconomistApiResponse": json.dumps(digiconomist_response_payload, separators=(",", ":")),
                 "gasUnitgCO2": round(gas_unit_gco2, 12),
-                "co2SavedKg": round(co2_saved_kg, 4),
-                "co2SavedG": round(co2_saved_g, 4),
+                "co2SavedKg": round(co2_saved_kg, 2),
+                "co2SavedG": round(co2_saved_g, 2),
                 "gasUnitgCO2_csv": round(gas_unit_gco2_csv, 12) if gas_unit_gco2_csv is not None else None,
-                "co2SavedKg_csv": round((gas_result["gasSaved"] * gas_unit_gco2_csv) / 1000, 4) if gas_unit_gco2_csv is not None else None,
-                "co2SavedG_csv": round(gas_result["gasSaved"] * gas_unit_gco2_csv, 4) if gas_unit_gco2_csv is not None else None,
+                "co2SavedKg_csv": round((gas_result["gasSaved"] * gas_unit_gco2_csv) / 1000, 2) if gas_unit_gco2_csv is not None else None,
+                "co2SavedG_csv": round(gas_result["gasSaved"] * gas_unit_gco2_csv, 2) if gas_unit_gco2_csv is not None else None,
                 **latency_result,
             }
 
             rows.append(merged)
 
+        except DigiconomistAPIError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
         except Exception as e:
             print(f"  [WARN] Skipping {filename}: {e}")
 
@@ -366,6 +393,7 @@ def main():
     col_order = [
         "file", "batchSize", "batchIntervalMinutes", "throughput",
         "totalIndividualGasUsed", "totalBatchGasUsed", "gasSaved", "percentageSaved",
+        "digiconomistRequestedDate", "digiconomistResponseDate", "digiconomistApiResponse",
         "gasUnitgCO2", "co2SavedKg", "co2SavedG",
         "gasUnitgCO2_csv", "co2SavedKg_csv", "co2SavedG_csv",
         "avgLatencyMs", "minLatencyMs", "maxLatencyMs", "totalTransactionsAnalysed",
@@ -376,7 +404,7 @@ def main():
     df.to_csv(OUTPUT_PATH, index=False)
 
     print_header("Summary")
-    print(df.to_string(index=False))
+    print(df.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
     print(f"\n✅ Results saved to: {OUTPUT_PATH}")
 
     print_summary_table(df)
@@ -385,7 +413,7 @@ def main():
         df=df,
         metric_column="co2SavedKg",
         y_label="Carbon Saved (kg CO₂)",
-        title_prefix="Carbon Savings vs Batch Size",
+        title_prefix="Carbon Savings vs Batch Size (2-Hour Simulations)",
         metric_column2="co2SavedKg_csv",
     )
 
