@@ -1,98 +1,212 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { Transaction } from "@/types/types";
-import useExecuteETHBatchContract from "@/hooks/useExecuteETHBatchContract";
-import { useUSDC } from "@/hooks/useUSDC";
 import { generateRandomTransaction } from "@/lib/generateRandomUSDCTransaction";
-import { useApproveSmartContract } from "@/hooks/useApproveSmartContract";
+import { ethers } from "ethers";
+import { ETH_BATCH_CONTRACT_ABI } from "@/lib/ABI";
+import { adminWallet } from "@/lib/ethereum-wallets";
 
 type TransactionWithGas = Transaction & { gasUsed: string };
 
+const HARDHAT_RPC_URL = "http://127.0.0.1:8545";
+const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const BATCH_CONTRACT_ADDRESS = process.env
+  .NEXT_PUBLIC_ETHEREUM_BATCHER_ADDRESS as `0x${string}`;
+const USDC_ABI = [
+  {
+    name: "transfer",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address", internalType: "address" },
+      { name: "amount", type: "uint256", internalType: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool", internalType: "bool" }],
+  },
+] as const;
+
+async function executeBatch(
+  batch: TransactionWithGas[],
+  batcherWallet: ethers.Wallet,
+  provider: ethers.JsonRpcProvider,
+) {
+  if (!BATCH_CONTRACT_ADDRESS) {
+    console.error(
+      "Missing NEXT_PUBLIC_ETHEREUM_BATCHER_ADDRESS. Set it in off-chain/.env.local and restart dev server.",
+    );
+    return;
+  }
+
+  if (batch.length === 0) {
+    console.log(`\n⚠️ No transactions to batch. Skipping...`);
+    return;
+  }
+
+  const contract = new ethers.Contract(
+    BATCH_CONTRACT_ADDRESS,
+    ETH_BATCH_CONTRACT_ABI,
+    batcherWallet,
+  );
+
+  try {
+    const signatures: string[] = [];
+    const senders = [];
+    const recipients = [];
+    const amounts = [];
+
+    const senderNoncesMap = new Map<string, bigint>();
+    const batchSnapshot = [...batch];
+
+    //every sender needs to sign the transaction to be included in the batch
+    for (let i = 0; i < batchSnapshot.length; i++) {
+      const tx = batchSnapshot[i];
+
+      const senderWallet = new ethers.Wallet(
+        tx.senderPrivateKey as string,
+        provider,
+      );
+
+      let nonce: bigint;
+
+      if (senderNoncesMap.has(tx.sender)) {
+        nonce = senderNoncesMap.get(tx.sender)!;
+        senderNoncesMap.set(tx.sender, nonce + BigInt(1));
+      } else {
+        nonce = await contract.nonces(tx.sender);
+        senderNoncesMap.set(tx.sender, nonce + BigInt(1));
+      }
+
+      const messageHash = ethers.solidityPackedKeccak256(
+        ["address", "address", "uint256", "uint256"],
+        [tx.sender, tx.recipient, tx.amount, nonce],
+      );
+
+      const signature = await senderWallet.signMessage(
+        ethers.getBytes(messageHash),
+      );
+
+      signatures.push(signature);
+      senders.push(tx.sender);
+      recipients.push(tx.recipient);
+      amounts.push(tx.amount);
+    }
+
+    const batchedTx = await contract.executeBatch(
+      senders,
+      recipients,
+      amounts,
+      signatures,
+    );
+
+    console.log(`\nBatch Tx Sent: ${batchedTx.hash}`);
+
+    const batchedTxReceipt = await batchedTx.wait();
+
+    return (
+      batchedTxReceipt &&
+      (typeof batchedTxReceipt.gasUsed === "bigint"
+        ? batchedTxReceipt.gasUsed.toString()
+        : String(batchedTxReceipt.gasUsed))
+    );
+  } catch (error) {
+    console.error(`❌ Batch execution failed:`, error);
+  }
+}
+
 export default function SimulateUSDCTransactions() {
-  const { executeBatch, receipt: batchReceipt } = useExecuteETHBatchContract();
-
-  const { sendUsdc } = useUSDC();
-
-  const { approveForAll, isApproving } = useApproveSmartContract();
-
   const [isRunning, setIsRunning] = useState(false);
   const [transactions, setTransactions] = useState<TransactionWithGas[]>([]);
   const [countdown, setCountdown] = useState<number>(0);
   const [simulationComplete, setSimulationComplete] = useState(false);
+  const [batchGasUsed, setBatchGasUsed] = useState<string | null>(null);
+  const provider = useMemo(
+    () => new ethers.JsonRpcProvider(HARDHAT_RPC_URL),
+    [],
+  );
+  const batcherWallet = useMemo(
+    () => new ethers.Wallet(adminWallet.privateKey, provider),
+    [provider],
+  );
 
-  useEffect(() => {
-    if (!isRunning) return;
+  const processNewTransaction = async () => {
+    try {
+      const transaction = await generateRandomTransaction();
 
-    // The Simulation Loop
-    const runSimulation = async () => {
-      const batch: Transaction[] = [];
+      const recipient = transaction.recipient;
+      const txamount = transaction.amount;
+      const individualWallet = new ethers.Wallet(
+        transaction.senderPrivateKey as string,
+        provider,
+      );
+      const individualUsdc = new ethers.Contract(
+        USDC_ADDRESS,
+        USDC_ABI,
+        individualWallet,
+      );
 
-      // First, wait for approvals to complete
-      const approved = await approveForAll();
-      if (!approved) {
-        console.error("Approval failed, stopping simulation");
-        setIsRunning(false);
-        return;
+      const tx = await individualUsdc.transfer(recipient, txamount);
+      const txReceipt = await tx.wait();
+
+      const gasUsed =
+        txReceipt?.gasUsed !== undefined
+          ? typeof txReceipt.gasUsed === "bigint"
+            ? txReceipt.gasUsed.toString()
+            : String(txReceipt.gasUsed)
+          : "0";
+
+      console.log(`\n✅ Individual Tx: ${tx.hash}`);
+      console.log(`⛽ Gas Used: ${gasUsed}`);
+
+      return { ...transaction, gasUsed };
+    } catch (txError) {
+      console.error("Transaction failed:", txError);
+      return null;
+    }
+  };
+
+  const handleSimulation = async () => {
+    setIsRunning(true);
+    setTransactions([]);
+    setSimulationComplete(false);
+    setBatchGasUsed(null);
+    setCountdown(120);
+    const batch: TransactionWithGas[] = [];
+
+    // start the countdown and simulation
+    const simulationDuration = countdown * 1000;
+    const endTime = Date.now() + simulationDuration;
+
+    // Countdown timer
+    const countdownInterval = setInterval(() => {
+      const remaining = Math.ceil((endTime - Date.now()) / 1000);
+      setCountdown(remaining > 0 ? remaining : 0);
+    }, 1000);
+
+    while (Date.now() < endTime) {
+      const newTx = await processNewTransaction();
+
+      if (newTx) {
+        batch.push(newTx);
+        setTransactions((prev) => [...prev, newTx]);
       }
 
-      // After approvals are done, start the countdown and simulation
-      const simulationDuration = 0.2 * 60 * 1000; // 12 seconds
-      const endTime = Date.now() + simulationDuration;
+      // wait random time
+      await new Promise((r) => setTimeout(r, Math.random() * 3000));
+    }
 
-      // Countdown timer
-      const countdownInterval = setInterval(() => {
-        const remaining = Math.ceil((endTime - Date.now()) / 1000);
-        setCountdown(remaining > 0 ? remaining : 0);
-      }, 1000);
+    clearInterval(countdownInterval);
+    const gasUsed = await executeBatch(batch, batcherWallet, provider);
+    setBatchGasUsed(gasUsed ?? null);
 
-      while (Date.now() < endTime) {
-        const tx = await generateRandomTransaction();
-        const txReceipt = await sendUsdc(tx);
-
-        if (txReceipt) {
-          const gasUsedString =
-            typeof txReceipt.gasUsed === "bigint"
-              ? txReceipt.gasUsed.toString()
-              : String(txReceipt.gasUsed);
-
-          setTransactions((prev) => [
-            ...prev,
-            { ...tx, gasUsed: gasUsedString },
-          ]);
-        }
-
-        batch.push(tx);
-
-        // wait random time
-        await new Promise((r) => setTimeout(r, Math.random() * 3000));
-      }
-
-      clearInterval(countdownInterval);
-      setSimulationComplete(true);
-      await executeBatch(batch);
-    };
-
-    runSimulation();
-  }, [isRunning]);
-
-  const batchGasUsed =
-    batchReceipt &&
-    (typeof batchReceipt.gasUsed === "bigint"
-      ? batchReceipt.gasUsed.toString()
-      : String(batchReceipt.gasUsed));
+    setIsRunning(false);
+    setSimulationComplete(true);
+  };
 
   const totalIndividualGas = transactions.reduce(
     (sum, tx) => sum + BigInt(tx.gasUsed),
     BigInt(0),
   );
-
-  const handleStart = () => {
-    setIsRunning(true);
-    setTransactions([]);
-    setSimulationComplete(false);
-    setCountdown(12);
-  };
 
   return (
     <div className="max-w-6xl mx-auto p-8">
@@ -103,17 +217,11 @@ export default function SimulateUSDCTransactions() {
 
         {!isRunning && (
           <button
-            onClick={handleStart}
+            onClick={handleSimulation}
             className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 mb-6 rounded-lg transition"
           >
             Start Simulation
           </button>
-        )}
-
-        {isApproving && (
-          <div className="text-2xl font-bold text-blue-600">
-            All Account are approving the Batching Smart Contract. Please Wait
-          </div>
         )}
 
         {isRunning && (
@@ -123,7 +231,7 @@ export default function SimulateUSDCTransactions() {
                 {countdown > 0 ? `${countdown}s remaining` : "Simulation over"}
               </div>
               {countdown > 0 && (
-                <div className="text-sm text-gray-500">Keep tab open</div>
+                <div className="text-sm text-gray-500">Keep the tab open</div>
               )}
             </div>
           </div>
@@ -190,7 +298,7 @@ export default function SimulateUSDCTransactions() {
               <div className="bg-white rounded-lg p-4 shadow">
                 <div className="text-gray-500 mb-2">Batched Gas</div>
                 <div className="text-3xl font-bold text-green-600">
-                  {batchGasUsed ?? "Processing..."}
+                  {batchGasUsed ?? "N/A"}
                 </div>
                 <div className="text-sm text-gray-500 mt-1">
                   Single batch transaction
