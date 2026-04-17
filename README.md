@@ -1,107 +1,155 @@
 # Final Year Project
 
-This project contains three parts:
+Compares Ethereum and VeChain USDC batch transaction performance via on-chain simulations.
 
-- `hardhat/` for Ethereum contract deployment and local testing
-- `off-chain/` for the simulations and supporting scripts
-- `analysis/` for the Python analysis scripts and result files
+## Project structure
+
+| Folder | Purpose |
+|---|---|
+| `hardhat/` | Ethereum contract deployment and local testing |
+| `off-chain/` | Simulation scripts and frontend UI |
+| `analysis/` | Python analysis scripts and result files |
 
 ## Prerequisites
 
-- Node.js installed
-- npm installed
-- Docker installed and running
+- Node.js v18+ and npm
+- Docker Desktop
+- Python 3
 
-## Simulation options
+## Environment setup
 
-You can run the project in two ways:
+Each sub-project needs a `.env` file before running anything.
 
-1. Main project simulations (script-based)
-2. Presentation simulation (frontend UI)
+**`hardhat/.env`**
+```env
+ALCHEMY_MAINNET_URL="https://eth-mainnet.g.alchemy.com/v2/<your-api-key>"
+USDC_ADDRESS=<deployed USDC contract address>
+```
 
-## Step 3: Start shared setup (before any simulation)
+**`off-chain/.env`**
+```env
+NEXT_PUBLIC_ETHEREUM_BATCHER_ADDRESS="<deployed Ethereum batcher address>"
+NEXT_PUBLIC_VECHAIN_BATCHER_ADDRESS="<deployed VeChain batcher address>"
+NEXT_PUBLIC_VECHAIN_USDC_ADDRESS="<deployed VeChain USDC address>"
 
-Run these in separate terminals before starting Option 1 or Option 2:
+NEXT_PUBLIC_SIMULATION_BATCH_SIZE=125
+NEXT_PUBLIC_SIMULATION_BATCH_INTERVAL_MIN=5
+NEXT_PUBLIC_SIMULATION_DURATION_MIN=120
+NEXT_PUBLIC_TARGET_TPS=9
+```
 
-1. Open a terminal in the project root folder and run the prep scripts:
+**`analysis/.env`**
+```env
+API_KEY=<your VeChain Stats API key>
+```
 
-	```bash
-	npm run ETHprep
-	npm run VETprep
-	```
+## Running the simulations
 
-2. Open a terminal in the `hardhat/` folder and start the Hardhat node:
+### 1. Shared setup (required for both options)
 
-	```bash
-	npx hardhat node
-	```
+**Step 1 — Install dependencies:**
+```bash
+# Root
+npm install --legacy-peer-deps
 
-3. Open Docker Desktop, then start the VeChain Thor solo node in another terminal:
+# Off-chain
+cd off-chain && npm install --legacy-peer-deps
+```
 
-	```bash
-	docker run -p 127.0.0.1:8669:8669 vechain/thor:latest solo --api-allowed-tracers all --api-cors '*' --api-addr 0.0.0.0:8669
-	```
+**Step 2 — Start the Hardhat node** (keep this terminal open):
+```bash
+cd hardhat
+npx hardhat node
+```
 
-## Option 1: Run the main project simulations (script-based)
+**Step 3 — Start the VeChain Thor solo node** (keep this terminal open):
+```bash
+docker run -p 127.0.0.1:8669:8669 vechain/thor:latest solo --api-allowed-tracers all --api-cors '*' --api-addr 0.0.0.0:8669
+```
 
-The main simulations are the TypeScript scripts in `off-chain/simulation/`:
+**Step 4 — Run preparation scripts** (from the root, in a new terminal):
 
-- `EthereumUSDCSimulation.ts`
-- `VeChainUSDCSimulation.ts`
+Each script deploys the contracts, funds the wallets, and approves the batcher — everything needed before running a simulation.
+```bash
+npm run ETHprep
+npm run VETprep
+```
 
-Before running the scripts, create the log folders (if they do not exist):
+### 2a. Script-based simulation
 
+From `off-chain/`, create the log folders if they don't exist:
 ```bash
 mkdir -p simulation/EthereumSimulationLogs simulation/VeChainSimulationLogs
 ```
 
-After completing Step 3, run from `off-chain/`:
-
+Then run the simulations:
 ```bash
 npx tsx simulation/EthereumUSDCSimulation.ts
 npx tsx simulation/VeChainUSDCSimulation.ts
 ```
 
-Simulation logs are written to:
+Logs are written to `off-chain/simulation/EthereumSimulationLogs/` and `off-chain/simulation/VeChainSimulationLogs/`.
 
-- `off-chain/simulation/EthereumSimulationLogs/`
-- `off-chain/simulation/VeChainSimulationLogs/`
+### 2b. Frontend simulation
 
-## Option 2: Run the presentation simulation (frontend UI)
-
-After completing Step 3, start the off-chain app from the `off-chain/` folder:
-
-1. Start the app:
-
-	```bash
-	npm install
-	npm run dev
-	```
-
-2. Open the app in your browser and use the simulation from the UI.
-
-## Useful commands
-
-### Hardhat
-
+From `off-chain/`:
 ```bash
-cd hardhat
-npx hardhat compile
-npx hardhat test
-```
-
-### Off-chain app
-
-```bash
-cd off-chain
 npm run dev
-npm run build
 ```
 
-### Analysis scripts
+Open the app in a browser and run the simulation from the UI.
+
+## Analysis
 
 ```bash
 cd analysis
+pip install -r requirements.txt
 python ethereum_analysis.py
 python vechain_analysis.py
 ```
+
+## Other useful commands
+
+```bash
+# Hardhat
+cd hardhat && npx hardhat compile
+cd hardhat && npx hardhat test
+
+# Off-chain app
+cd off-chain && npm run build
+```
+
+## Troubleshooting
+
+**Prep scripts fail immediately** — the Hardhat node and Docker Thor node must both be running before executing `npm run ETHprep` / `npm run VETprep`.
+
+**`npx tsx` not found** — run `npm install --legacy-peer-deps` inside `off-chain/` first.
+
+**VeChain deploy fails** — confirm the Thor container is running and accessible at `http://localhost:8669`.
+
+## Packages
+
+<details>
+<summary>Hardhat</summary>
+
+**Dev:** `hardhat`, `@nomicfoundation/hardhat-toolbox`, `@vechain/sdk-hardhat-plugin`
+
+**Runtime:** `@tenderly/hardhat-tenderly`, `dotenv`
+
+</details>
+
+<details>
+<summary>Off-chain</summary>
+
+**Runtime:** `next`, `react`, `react-dom`, `ethers`, `viem`, `wagmi`, `@metamask/sdk`, `@tanstack/react-query`, `@vechain/sdk-core`, `@vechain/sdk-network`, `dotenv`, `jsdom`
+
+**Dev:** `typescript`, `eslint`, `eslint-config-next`, `tailwindcss`, `@tailwindcss/postcss`, `@types/node`, `@types/react`, `@types/react-dom`, `@testing-library/react`, `@testing-library/dom`, `@testing-library/react-hooks`
+
+</details>
+
+<details>
+<summary>Analysis (Python)</summary>
+
+`pandas`, `matplotlib`, `requests`, `python-dotenv`
+
+</details>
