@@ -155,5 +155,3 @@ cd off-chain && npm run build
 </details>
 
 ## Project Report
-
-The full project report is available here: [Project-report.pdf](Project-report.pdf).
