@@ -30,6 +30,31 @@ OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "results", "ethereum_resul
 DIGICONOMIST_API_TEMPLATE = "https://digiconomist.net/wp-json/mo/v1/ethereum/stats/{date}"
 
 
+class DigiconomistAPIError(RuntimeError):
+    pass
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+CO2_CSV_PATH = os.path.join(DATA_DIR, "ethereum-daily-co2.csv")
+GAS_CSV_PATH = os.path.join(DATA_DIR, "ethereum-daily-gas.csv")
+
+def load_csv_gas_unit_gco2():
+    """
+    Derives Gas_unit_gCO2 from CSV data by dividing daily estimated CO2
+    (KtCO2e → gCO2) by daily total gas used, then returns a date-indexed Series.
+    """
+    co2_df = pd.read_csv(CO2_CSV_PATH, parse_dates=["Date and Time"])
+    co2_df = co2_df.rename(columns={"Date and Time": "date"})
+    co2_df["date"] = co2_df["date"].dt.normalize()
+
+    gas_df = pd.read_csv(GAS_CSV_PATH)
+    gas_df["date"] = pd.to_datetime(gas_df["Date(UTC)"]).dt.normalize()
+
+    merged = pd.merge(co2_df[["date", "Estimated, KtCO2e"]], gas_df[["date", "Value"]], on="date")
+    # KtCO2e * 1e7 = gCO2 (empirically matched to Digiconomist unit); divide by daily gas to get gCO2 per gas unit
+    merged["gas_unit_gco2_csv"] = (merged["Estimated, KtCO2e"] * 1e7) / merged["Value"].astype(float)
+    return merged.set_index("date")["gas_unit_gco2_csv"]
+
+
 def extract_api_date_from_filename(filename):
     match = re.search(r"(\d{4})-(\d{2})-(\d{2})T", filename)
     if not match:
@@ -39,20 +64,168 @@ def extract_api_date_from_filename(filename):
 
 def fetch_gas_unit_gco2(api_date):
     import ssl
-    url = DIGICONOMIST_API_TEMPLATE.format(date=api_date)
+    from datetime import datetime, timedelta
+
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
-        payload = json.loads(response.read().decode("utf-8"))
 
-    if not payload or "Gas_unit_gCO2" not in payload[0]:
-        raise ValueError("Gas_unit_gCO2 missing in API response")
+    date = datetime.strptime(api_date, "%Y%m%d")
+    for _ in range(30):
+        query_date = date.strftime("%Y%m%d")
+        url = DIGICONOMIST_API_TEMPLATE.format(date=query_date)
+        with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload and "Gas_unit_gCO2" in payload[0]:
+            return float(payload[0]["Gas_unit_gCO2"]), query_date, payload
+        date -= timedelta(days=1)
 
-    return float(payload[0]["Gas_unit_gCO2"])
+    raise ValueError(f"Gas_unit_gCO2 not found in API for {api_date} or the 30 preceding days")
 
 
-def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix):
+def plot_co2_grouped_bar(df, target_batch_size=150):
+    """Grouped bar chart: Unbatched vs Optimised CO2 per throughput level for a fixed batch size."""
+    throughputs = sorted(df["throughput"].dropna().unique())
+
+    # For each throughput, use the requested batch size only.
+    plot_throughputs = []
+    unbatched_co2 = []
+    batched_co2 = []
+
+    for t in throughputs:
+        subset = df[(df["throughput"] == t) & (df["batchSize"] == target_batch_size)]
+        if subset.empty:
+            print(f"  [INFO] No batchSize={target_batch_size} data for throughput {t}; skipping in grouped CO2 chart")
+            continue
+
+        selected = subset.iloc[0]
+        unit = selected["gasUnitgCO2"]
+        plot_throughputs.append(t)
+        unbatched_co2.append((selected["totalIndividualGasUsed"] * unit) / 1000)
+        batched_co2.append((selected["totalBatchGasUsed"] * unit) / 1000)
+
+    if not plot_throughputs:
+        print(f"  [INFO] No data available for batchSize={target_batch_size}; grouped CO2 chart not shown")
+        return
+
+    x = range(len(plot_throughputs))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars1 = ax.bar([i - width / 2 for i in x], unbatched_co2, width, label="Unbatched Baseline CO₂", color="tab:red", alpha=0.8)
+    bars2 = ax.bar([i + width / 2 for i in x], batched_co2, width, label="Optimised Batching CO₂", color="tab:green", alpha=0.8)
+
+    ax.set_xlabel("Throughput (tx/s)")
+    ax.set_ylabel("CO₂ Emissions (kg)")
+    ax.set_title(f"Unbatched vs Optimised Batching CO₂ by Throughput (Batch Size={target_batch_size}, 2-Hour Simulations)")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels([f"T={t}" for t in plot_throughputs])
+    ax.legend()
+    ax.bar_label(bars1, fmt="%.2f", padding=3, fontsize=8)
+    ax.bar_label(bars2, fmt="%.2f", padding=3, fontsize=8)
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+
+
+def plot_pareto_front(df):
+    """Scatter plot of Latency vs CO2 Savings to visualise the Pareto Front."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    throughputs = sorted(df["throughput"].dropna().unique())
+    colors = plt.cm.tab10.colors
+
+    for i, throughput in enumerate(throughputs):
+        subset = df[df["throughput"] == throughput]
+        x = subset["avgLatencyMs"] / 1000  # convert to seconds
+        y = subset["co2SavedKg"]
+        ax.scatter(x, y, label=f"T={throughput}", color=colors[i % len(colors)], s=80, zorder=3)
+        for _, row in subset.iterrows():
+            ax.annotate(
+                f"B={int(row['batchSize'])}",
+                (row["avgLatencyMs"] / 1000, row["co2SavedKg"]),
+                textcoords="offset points", xytext=(6, 4), fontsize=7
+            )
+
+    ax.set_xlabel("Average Latency (s)")
+    ax.set_ylabel("CO₂ Saved (kg)")
+    ax.set_title("Pareto Front: Latency vs CO₂ Savings")
+    ax.legend(title="Throughput")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+
+def plot_pareto_front_pct(df):
+    """Scatter plot of Latency vs % Carbon Saved to visualise the Pareto Front."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    throughputs = sorted(df["throughput"].dropna().unique())
+    colors = plt.cm.tab10.colors
+
+    for i, throughput in enumerate(throughputs):
+        subset = df[df["throughput"] == throughput]
+        x = subset["avgLatencyMs"] / 1000
+        y = subset["percentageSaved"]
+        ax.scatter(x, y, label=f"T={throughput}", color=colors[i % len(colors)], s=80, zorder=3)
+        for _, row in subset.iterrows():
+            ax.annotate(
+                f"B={int(row['batchSize'])}",
+                (row["avgLatencyMs"] / 1000, row["percentageSaved"]),
+                textcoords="offset points", xytext=(6, 4), fontsize=7
+            )
+
+    ax.set_xlabel("Average Latency (s)")
+    ax.set_ylabel("Carbon Emission Reduction (%)")
+    ax.set_title("Pareto Front: Latency vs Carbon Emission Reduction % (2-Hour Simulations)")
+    ax.legend(title="Throughput")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+
+def plot_latency_boxplot(json_files):
+    """Collect all individual transaction latencies per batch size, split by throughput, and plot violin plots."""
+    from collections import defaultdict
+    # { throughput: { batch_size: [latencies] } }
+    data_map = defaultdict(lambda: defaultdict(list))
+
+    for json_file in json_files:
+        with open(json_file) as f:
+            data = json.load(f)
+        batch_size = data.get("batchSize")
+        throughput = data.get("throughput")
+        if batch_size is None or throughput is None:
+            continue
+        for batch in data.get("batches", []):
+            batch_ts = batch.get("timestamp")
+            if batch_ts is None:
+                continue
+            for tx in batch.get("transactions", []):
+                tx_ts = tx.get("timeStamp")
+                if tx_ts is not None:
+                    data_map[throughput][batch_size].append((batch_ts - tx_ts) / 1000)
+
+    if not data_map:
+        return
+
+    throughputs = sorted(data_map)
+    fig, axes = plt.subplots(1, len(throughputs), figsize=(6 * len(throughputs), 6), sharey=True)
+    if len(throughputs) == 1:
+        axes = [axes]
+
+    for ax, throughput in zip(axes, throughputs):
+        sorted_sizes = sorted(data_map[throughput])
+        ax.violinplot([data_map[throughput][s] for s in sorted_sizes], positions=range(len(sorted_sizes)), showmeans=True, showmedians=True)
+        ax.set_title(f"Throughput = {throughput}")
+        ax.set_xlabel("Batch Size")
+        ax.set_xticks(range(len(sorted_sizes)))
+        ax.set_xticklabels(sorted_sizes)
+        ax.grid(True, axis="y", alpha=0.3)
+
+    axes[0].set_ylabel("Transaction Latency (s)")
+    fig.suptitle("Transaction Latency Distribution by Batch Size")
+    fig.tight_layout()
+
+
+def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix, scale=1.0, metric_column2=None, label1="Digiconomist", label2="Primary Model"):
     throughputs = sorted(df["throughput"].dropna().unique())
 
     for throughput in throughputs:
@@ -63,21 +236,63 @@ def plot_metric_lines_by_throughput(df, metric_column, y_label, title_prefix):
             interval_df = subset[subset["batchIntervalMinutes"] == interval].copy()
             interval_df = interval_df.sort_values("batchSize")
 
-            avg = interval_df[metric_column].mean()
+            fig, ax1 = plt.subplots(figsize=(10, 4))
 
-            fig, ax = plt.subplots(figsize=(9, 4))
-            ax.plot(interval_df["batchSize"], interval_df[metric_column], marker="o", linewidth=2)
-            ax.axhline(avg, color="red", linestyle="--", linewidth=1.2, label=f"Avg: {avg:.4f}")
-            ax.set_title(f"{title_prefix} — Throughput={throughput}, Batch Interval={interval} min")
-            ax.set_xlabel("Batch Size")
-            ax.set_ylabel(y_label)
-            ax.set_xticks(interval_df["batchSize"])
-            ax.set_yticks(sorted(interval_df[metric_column].tolist() + [avg]))
-            ax.yaxis.set_major_formatter(plt.FormatStrFormatter("%.4f"))
-            ax.tick_params(axis="x", rotation=45)
-            ax.grid(True, alpha=0.3)
-            ax.legend()
+            if metric_column2 and metric_column2 in interval_df.columns:
+                v_csv  = interval_df[metric_column2] / scale
+                v_digi = interval_df[metric_column] / scale
+
+                l1, = ax1.plot(interval_df["batchSize"], v_csv, marker="o", linewidth=2, color="tab:blue", label=label2)
+                ax1.set_ylabel(f"{y_label} ({label2})", color="tab:blue")
+                ax1.tick_params(axis="y", labelcolor="tab:blue")
+                ax1.set_yticks(sorted(v_csv.tolist()))
+                ax1.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
+
+                ax2 = ax1.twinx()
+                l2, = ax2.plot(interval_df["batchSize"], v_digi, marker="s", linewidth=2, color="tab:orange", label=label1)
+                ax2.set_ylabel(f"{y_label} ({label1})", color="tab:orange")
+                ax2.tick_params(axis="y", labelcolor="tab:orange")
+                ax2.set_yticks(sorted(v_digi.tolist()))
+                ax2.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
+
+                ax1.legend(handles=[l1, l2], loc="upper left")
+            else:
+                values = interval_df[metric_column] / scale
+                avg = values.mean()
+                ax1.plot(interval_df["batchSize"], values, marker="o", linewidth=2)
+                ax1.axhline(avg, color="red", linestyle="--", linewidth=1.2)
+                ax1.text(0.02, 0.98, f"Avg: {avg:.2f}", transform=ax1.transAxes, va="top", ha="left", color="red", fontsize=9)
+                ax1.set_ylabel(y_label)
+                ax1.set_yticks(sorted(values.tolist()))
+                ax1.yaxis.set_major_formatter(plt.FormatStrFormatter("%.2f"))
+
+            ax1.set_title(f"{title_prefix} — Throughput={throughput}, Batch Interval={interval} min")
+            ax1.set_xlabel("Batch Size")
+            ax1.set_xticks(interval_df["batchSize"])
+            ax1.tick_params(axis="x", rotation=45)
+            ax1.grid(True, alpha=0.3)
             fig.tight_layout()
+
+def print_summary_table(df):
+    """Print a structured table of independent variables vs key numerical outputs."""
+    print_header("Independent Variables vs Numerical Outputs")
+
+    cols = {
+        "Throughput": "throughput",
+        "Batch Interval (min)": "batchIntervalMinutes",
+        "Batch Size": "batchSize",
+        "Total Gas Used": "totalBatchGasUsed",
+        "Total CO2 Saved (kg)": "co2SavedKg",
+        "Mean Latency (ms)": "avgLatencyMs",
+        "Max Latency (ms)": "maxLatencyMs",
+    }
+
+    table = df[[v for v in cols.values() if v in df.columns]].copy()
+    table = table.sort_values(["throughput", "batchIntervalMinutes", "batchSize"])
+    table.columns = [k for k, v in cols.items() if v in df.columns]
+
+    print(table.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
+
 
 def main():
     logs_dir = os.path.abspath(ETHEREUM_LOGS_PATH)
@@ -97,6 +312,7 @@ def main():
 
     rows = []
     gco2_cache = {}
+    csv_gco2_series = load_csv_gas_unit_gco2()
 
     for json_file in json_files:
         filename = os.path.basename(json_file)
@@ -104,12 +320,34 @@ def main():
 
         try:
             data = load_json(json_file)
+
+            batch_numbers = sorted(b["batchNumber"] for b in data.get("batches", []) if "batchNumber" in b)
+            if not batch_numbers or batch_numbers[0] != 1 or any(batch_numbers[i+1] - batch_numbers[i] > 1 for i in range(len(batch_numbers) - 1)):
+                print(f"  [SKIP] {filename}: batch numbers are not sequential or do not start from 1")
+                continue
+
             api_date = extract_api_date_from_filename(filename)
 
-            if api_date not in gco2_cache:
-                gco2_cache[api_date] = fetch_gas_unit_gco2(api_date)
+            # CSV-derived model: look up the most recent date available in both CSVs
+            file_date = pd.Timestamp(api_date)
+            available = csv_gco2_series.index[csv_gco2_series.index <= file_date]
+            if len(available) > 0:
+                csv_resolved_date = available[-1]
+                gas_unit_gco2_csv = float(csv_gco2_series[csv_resolved_date])
+            else:
+                csv_resolved_date = None
+                gas_unit_gco2_csv = None
 
-            gas_unit_gco2 = gco2_cache[api_date]
+            # Fetch Digiconomist for the same date the primary model resolved to.
+            digi_date = csv_resolved_date.strftime("%Y%m%d") if csv_resolved_date is not None else api_date
+            if digi_date not in gco2_cache:
+                try:
+                    gco2_cache[digi_date] = fetch_gas_unit_gco2(digi_date)
+                except Exception as api_err:
+                    raise DigiconomistAPIError(
+                        f"Digiconomist API unavailable for {filename}: {api_err}"
+                    ) from api_err
+            gas_unit_gco2, digiconomist_response_date, digiconomist_response_payload = gco2_cache[digi_date]
 
             shared = {
                 "batchSize": data["batchSize"],
@@ -126,14 +364,23 @@ def main():
                 "file": filename,
                 **shared,
                 **gas_result,
+                "digiconomistRequestedDate": digi_date,
+                "digiconomistResponseDate": digiconomist_response_date,
+                "digiconomistApiResponse": json.dumps(digiconomist_response_payload, separators=(",", ":")),
                 "gasUnitgCO2": round(gas_unit_gco2, 12),
-                "co2SavedKg": round(co2_saved_kg, 4),
-                "co2SavedG": round(co2_saved_g, 4),
+                "co2SavedKg": round(co2_saved_kg, 2),
+                "co2SavedG": round(co2_saved_g, 2),
+                "gasUnitgCO2_csv": round(gas_unit_gco2_csv, 12) if gas_unit_gco2_csv is not None else None,
+                "co2SavedKg_csv": round((gas_result["gasSaved"] * gas_unit_gco2_csv) / 1000, 2) if gas_unit_gco2_csv is not None else None,
+                "co2SavedG_csv": round(gas_result["gasSaved"] * gas_unit_gco2_csv, 2) if gas_unit_gco2_csv is not None else None,
                 **latency_result,
             }
 
             rows.append(merged)
 
+        except DigiconomistAPIError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
         except Exception as e:
             print(f"  [WARN] Skipping {filename}: {e}")
 
@@ -145,7 +392,10 @@ def main():
 
     col_order = [
         "file", "batchSize", "batchIntervalMinutes", "throughput",
-        "totalIndividualGasUsed", "totalBatchGasUsed", "gasSaved", "percentageSaved", "gasUnitgCO2", "co2SavedKg", "co2SavedG",
+        "totalIndividualGasUsed", "totalBatchGasUsed", "gasSaved", "percentageSaved",
+        "digiconomistRequestedDate", "digiconomistResponseDate", "digiconomistApiResponse",
+        "gasUnitgCO2", "co2SavedKg", "co2SavedG",
+        "gasUnitgCO2_csv", "co2SavedKg_csv", "co2SavedG_csv",
         "avgLatencyMs", "minLatencyMs", "maxLatencyMs", "totalTransactionsAnalysed",
     ]
     df = df[[c for c in col_order if c in df.columns]]
@@ -154,22 +404,40 @@ def main():
     df.to_csv(OUTPUT_PATH, index=False)
 
     print_header("Summary")
-    print(df.to_string(index=False))
+    print(df.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
     print(f"\n✅ Results saved to: {OUTPUT_PATH}")
+
+    print_summary_table(df)
 
     plot_metric_lines_by_throughput(
         df=df,
-        metric_column="co2SavedG",
-        y_label="Carbon Saved (g CO₂)",
-        title_prefix="Carbon Savings vs Batch Size",
+        metric_column="co2SavedKg",
+        y_label="Carbon Saved (kg CO₂)",
+        title_prefix="Carbon Savings vs Batch Size (2-Hour Simulations)",
+        metric_column2="co2SavedKg_csv",
+    )
+
+    plot_metric_lines_by_throughput(
+        df=df,
+        metric_column="percentageSaved",
+        y_label="Carbon Emission Reduction (%)",
+        title_prefix="Carbon Emission Reduction % vs Batch Size",
     )
 
     plot_metric_lines_by_throughput(
         df=df,
         metric_column="avgLatencyMs",
-        y_label="Average Latency (ms)",
+        y_label="Average Latency (s)",
         title_prefix="Average Latency vs Batch Size",
+        scale=1000,
     )
+
+    processed_files = [r["file"] for r in rows]
+    plot_latency_boxplot([f for f in json_files if os.path.basename(f) in processed_files])
+
+    plot_pareto_front(df)
+    plot_pareto_front_pct(df)
+    plot_co2_grouped_bar(df)
 
     plt.show()
 

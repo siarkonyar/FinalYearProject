@@ -88,10 +88,7 @@ function getPoissonDelay(targetTPS: number): number {
   return delayMs;
 }
 
-async function executeBatch(
-  batch: TransactionType[],
-  batchNumber: number,
-) {
+async function executeBatch(batch: TransactionType[], batchNumber: number) {
   if (batch.length === 0) {
     console.log(
       `\n⚠️ Batch #${batchNumber}: No transactions to batch. Skipping...`,
@@ -115,9 +112,11 @@ async function executeBatch(
 
     const senderNoncesMap = new Map<string, bigint>();
 
+    const batchSnapshot = [...batch];
+
     //every sender needs to sign the transaction to be included in the batch
-    for (let i = 0; i < batch.length; i++) {
-      const tx = batch[i];
+    for (let i = 0; i < batchSnapshot.length; i++) {
+      const tx = batchSnapshot[i];
 
       let nonce: bigint;
 
@@ -298,7 +297,7 @@ async function VeChainUSDCSimulation() {
         recipient: transaction.recipient,
         amount: transaction.amount.toString(),
         gasUsed: gasUsed,
-        timestamp: Date.now(),
+        timestamp: transaction.timeStamp,
       });
 
       batch.push(transaction);

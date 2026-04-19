@@ -107,10 +107,11 @@ async function executeBatch(
     const amounts = [];
 
     const senderNoncesMap = new Map<string, bigint>();
+    const batchSnapshot = [...batch]
 
     //every sender needs to sign the transaction to be included in the batch
-    for (let i = 0; i < batch.length; i++) {
-      const tx = batch[i];
+    for (let i = 0; i < batchSnapshot.length; i++) {
+      const tx = batchSnapshot[i];
 
       const senderWallet = new ethers.Wallet(
         tx.senderPrivateKey as string,
@@ -263,7 +264,7 @@ async function USDCSimulation() {
         recipient: transaction.recipient,
         amount: transaction.amount.toString(),
         gasUsed: gasUsed,
-        timestamp: Date.now(),
+        timestamp: transaction.timeStamp,
       });
 
       batch.push(transaction);
@@ -291,6 +292,13 @@ async function USDCSimulation() {
         setTimeout(r, getPoissonDelay(TARGET_THROUGHPUT)),
       );
     }
+
+    //wait for all pending transactions to be executed
+    console.log("\nWaiting for pending transactions...");
+    while (activeProcesses > 0) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
     // Execute any remaining transactions in the batch after simulation ends
     if (batch.length > 0) {
       console.log("Executing final batch with remaining transactions...");

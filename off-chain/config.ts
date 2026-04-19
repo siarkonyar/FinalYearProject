@@ -1,7 +1,5 @@
 import { createConfig, http } from "wagmi";
-import { mainnet, sepolia } from "wagmi/chains";
 import { defineChain } from "viem";
-import { metaMask } from "wagmi/connectors";
 
 // Define Hardhat local network with mainnet fork
 const hardhatLocal = defineChain({
@@ -85,11 +83,6 @@ export const config = createConfig({
       wait: 16,
     },
   },
-  connectors: [
-    metaMask({
-      infuraAPIKey: process.env.NEXT_PUBLIC_INFURA_API_KEY!,
-    }),
-  ],
   transports: {
     [hardhatLocal.id]: http(),
     /* [vechainSolo.id]: http(),
