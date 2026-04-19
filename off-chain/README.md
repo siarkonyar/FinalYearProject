@@ -1,1 +1,0 @@
-npx tsx simulation/EthereumUSDCSimulation.ts
