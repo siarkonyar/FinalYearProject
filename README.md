@@ -153,3 +153,7 @@ cd off-chain && npm run build
 `pandas`, `matplotlib`, `requests`, `python-dotenv`
 
 </details>
+
+## Project Report
+
+The full project report is available here: [Project-report.pdf](Project-report.pdf).
